@@ -21,12 +21,17 @@ public class QQLQueryParser implements QueryParser {
     }
 
     @Override
-    public DynamicQueryDefinition parse(Method method) {
+    public String queryString(Method method) {
         val annotation = method.getAnnotation(QuartzQuery.class);
         if (annotation == null) {
             return null;
         }
-        val name = annotation.value();
+        return annotation.value();
+    }
+
+    @Override
+    public DynamicQueryDefinition parse(Method method) {
+        val name = queryString(method);
         String lower = name.toLowerCase(Locale.ROOT).trim();
         QueryAction action;
         if (lower.startsWith("find")) action = QueryAction.FIND;

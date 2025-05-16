@@ -21,6 +21,11 @@ public class MethodQueryParser implements QueryParser {
         return method.getAnnotations().length == 0 && method.getName().matches("^(find|count|exists).*");
     }
 
+    @Override
+    public String queryString(Method method) {
+        return method.getName();
+    }
+
     private static final Map<String, Operation> suffixAlias = Map.ofEntries(
             Map.entry("After", Operation.GREATER_THAN),
             Map.entry("Before", Operation.LESS_THAN),
@@ -41,7 +46,7 @@ public class MethodQueryParser implements QueryParser {
 
     @Override
     public DynamicQueryDefinition parse(Method method) {
-        val name = method.getName();
+        val name = queryString(method);
         QueryAction action = extractAction(name);
         String stripped = stripPrefix(name, action);
         List<Condition> conditions = new ArrayList<>();

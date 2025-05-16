@@ -20,4 +20,12 @@ public class SimpleQueryParser implements QueryParser {
     public boolean supports(Method method) {
         return methodQueryParser.supports(method) || qqlQueryParser.supports(method);
     }
+
+    @Override
+    public String queryString(Method method) {
+        if (qqlQueryParser.supports(method)) {
+            return qqlQueryParser.queryString(method);
+        }
+        return methodQueryParser.queryString(method);
+    }
 }

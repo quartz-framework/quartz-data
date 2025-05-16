@@ -35,10 +35,9 @@ public class StorageMethodInterceptor<E> implements MethodInterceptor {
         if (method.isDefault()) {
             return invocation.proceed();
         }
-        QuartzQuery annotation = method.getAnnotation(QuartzQuery.class);
         if (!isDynamicMethod(method)) return invocation.proceed();
         DynamicQueryDefinition query = queryParser.parse(method);
-        String queryString = annotation != null ? annotation.value() : method.getName();
+        String queryString = queryParser.queryString(method);
         validateReturnType(method, query);
         Object[] args = invocation.getArguments();
         long dynamicConditions = query

@@ -8,4 +8,6 @@ public interface QueryParser {
 
     boolean supports(Method method);
 
+    String queryString(Method method);
+
 }
