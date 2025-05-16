@@ -49,6 +49,11 @@ public class MethodQueryParser implements QueryParser {
         val name = queryString(method);
         QueryAction action = extractAction(name);
         String stripped = stripPrefix(name, action);
+        boolean distinct = false;
+        if (stripped.startsWith("Distinct")) {
+            distinct = true;
+            stripped = stripped.substring("Distinct".length());
+        }
         List<Condition> conditions = new ArrayList<>();
         List<Order> orders = new ArrayList<>();
         Integer limit = null;
@@ -74,7 +79,7 @@ public class MethodQueryParser implements QueryParser {
         if (!conditionPart.isEmpty()) {
             conditions = parseConditions(conditionPart);
         }
-        return new DynamicQueryDefinition(action, conditions, orders, limit);
+        return new DynamicQueryDefinition(action, conditions, orders, limit, distinct, false);
     }
 
     private QueryAction extractAction(String methodName) {

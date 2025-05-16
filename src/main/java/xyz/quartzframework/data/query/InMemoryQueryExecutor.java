@@ -3,10 +3,7 @@ package xyz.quartzframework.data.query;
 import lombok.extern.slf4j.Slf4j;
 
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -68,7 +65,9 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
                 return 0;
             });
         }
-
+        if (query.distinct()) {
+            result = new ArrayList<>(new LinkedHashSet<>(result));
+        }
         if (query.limit() != null && query.limit() > 0 && result.size() > query.limit()) {
             result = result.subList(0, query.limit());
         }

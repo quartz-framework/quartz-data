@@ -8,5 +8,7 @@ public record DynamicQueryDefinition(
     QueryAction action,
     List<Condition> conditions,
     List<Order> orders,
-    @Nullable Integer limit
+    @Nullable Integer limit,
+    boolean distinct,
+    boolean nativeSQL
 ) {}

@@ -39,7 +39,12 @@ public class QQLQueryParser implements QueryParser {
         else if (lower.startsWith("exists")) action = QueryAction.EXISTS;
         else throw new IllegalArgumentException("Unknown query action: " + name);
         String query = name.substring(action.name().length()).trim();
+        boolean distinct = false;
         Integer limit = null;
+        if (query.toLowerCase().startsWith("distinct")) {
+            distinct = true;
+            query = query.substring("distinct".length()).trim();
+        }
         Matcher topMatch = Pattern.compile("top\\s+(\\d+)", Pattern.CASE_INSENSITIVE).matcher(query);
         if (topMatch.find()) {
             limit = Integer.parseInt(topMatch.group(1));
@@ -110,6 +115,6 @@ public class QQLQueryParser implements QueryParser {
                 orders.add(new Order(prop, desc));
             }
         }
-        return new DynamicQueryDefinition(action, conditions, orders, limit);
+        return new DynamicQueryDefinition(action, conditions, orders, limit, distinct, false);
     }
 }
