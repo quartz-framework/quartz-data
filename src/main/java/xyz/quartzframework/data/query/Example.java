@@ -1,10 +1,12 @@
 package xyz.quartzframework.data.query;
 
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
 import java.lang.reflect.Field;
 import java.util.Objects;
 
+@Getter
 @RequiredArgsConstructor
 public class Example<T> {
 

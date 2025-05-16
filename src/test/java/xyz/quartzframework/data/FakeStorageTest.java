@@ -3,6 +3,7 @@ package xyz.quartzframework.data;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import xyz.quartzframework.data.query.InMemoryQueryExecutor;
+import xyz.quartzframework.data.query.SimpleQueryParser;
 import xyz.quartzframework.data.util.ProxyFactoryUtil;
 
 import java.time.Instant;
@@ -29,7 +30,7 @@ class FakeStorageTest {
         );
 
         InMemoryQueryExecutor<FakeEntity> executor = new InMemoryQueryExecutor<>(data);
-        storage = ProxyFactoryUtil.createProxy(FakeStorage.class, executor, FakeEntity.class);
+        storage = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, executor, FakeEntity.class);
     }
 
     @Test
@@ -196,7 +197,7 @@ class FakeStorageTest {
     void testFindByNameIsNull() {
         FakeEntity unnamed = new FakeEntity(UUID.randomUUID(), null, 10, true, Instant.parse("2025-01-01T00:01:00Z"));
         InMemoryQueryExecutor<FakeEntity> executor = new InMemoryQueryExecutor<>(List.of(unnamed));
-        FakeStorage tempStorage = ProxyFactoryUtil.createProxy(FakeStorage.class, executor, FakeEntity.class);
+        FakeStorage tempStorage = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, executor, FakeEntity.class);
         List<FakeEntity> result = tempStorage.findByNameIsNull();
         assertEquals(1, result.size());
     }
@@ -314,7 +315,7 @@ class FakeStorageTest {
     @Test
     void testFindByNameWithSpecialCharacters() {
         FakeEntity special = new FakeEntity(UUID.randomUUID(), "Dr. Alice!", 10, true, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(special)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(special)), FakeEntity.class);
         List<FakeEntity> result = temp.findByName("Dr. Alice!");
         assertEquals(1, result.size());
     }
@@ -322,7 +323,7 @@ class FakeStorageTest {
     @Test
     void testExistsByNameWhitespaceSensitivity() {
         FakeEntity spaced = new FakeEntity(UUID.randomUUID(), " Alice ", 10, true, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(spaced)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(spaced)), FakeEntity.class);
         assertFalse(temp.existsByName("Alice"));
     }
 
@@ -449,7 +450,7 @@ class FakeStorageTest {
     @Test
     void testFindByNameIsNullAndInactive() {
         FakeEntity e = new FakeEntity(UUID.randomUUID(), null, 0, false, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(e)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(e)), FakeEntity.class);
         List<FakeEntity> result = temp.findByNameIsNull();
         assertEquals(1, result.size());
         assertFalse(result.get(0).isActive());
@@ -521,7 +522,7 @@ class FakeStorageTest {
     @Test
     void testFindByNameWithTrailingSpaces() {
         FakeEntity custom = new FakeEntity(UUID.randomUUID(), "Alice ", 42, true, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(custom)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(custom)), FakeEntity.class);
         List<FakeEntity> result = temp.findByName("Alice ");
         assertEquals(1, result.size());
     }
@@ -546,7 +547,7 @@ class FakeStorageTest {
     @Test
     void testSearchByNameUnderscoreWildcard() {
         FakeEntity user = new FakeEntity(UUID.randomUUID(), "A_ice", 15, true, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(user)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(user)), FakeEntity.class);
         List<FakeEntity> result = temp.searchByName("A_ice");
         assertEquals(1, result.size());
     }
@@ -591,7 +592,7 @@ class FakeStorageTest {
     @Test
     void testLikeSpecialCharacterEscaping() {
         FakeEntity special = new FakeEntity(UUID.randomUUID(), "Dr. Bob$", 10, true, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(special)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(special)), FakeEntity.class);
         List<FakeEntity> result = temp.searchByName("Dr. Bob$");
         assertEquals(1, result.size());
         assertEquals("Dr. Bob$", result.get(0).getName());
@@ -600,7 +601,7 @@ class FakeStorageTest {
     @Test
     void testLikeWithUnderscore() {
         FakeEntity underscored = new FakeEntity(UUID.randomUUID(), "Jo_n", 10, true, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(underscored)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(underscored)), FakeEntity.class);
         List<FakeEntity> result = temp.searchByName("Jo_n");
         assertEquals(1, result.size());
         assertEquals("Jo_n", result.get(0).getName());

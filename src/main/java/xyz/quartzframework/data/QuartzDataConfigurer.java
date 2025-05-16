@@ -2,6 +2,7 @@ package xyz.quartzframework.data;
 
 import lombok.RequiredArgsConstructor;
 import lombok.val;
+import xyz.quartzframework.core.bean.annotation.Preferred;
 import xyz.quartzframework.core.bean.annotation.Priority;
 import xyz.quartzframework.core.bean.annotation.Provide;
 import xyz.quartzframework.core.bean.factory.PluginBeanFactory;
@@ -10,6 +11,8 @@ import xyz.quartzframework.core.condition.annotation.ActivateWhenBeanMissing;
 import xyz.quartzframework.core.context.AbstractQuartzContext;
 import xyz.quartzframework.core.context.annotation.Configurer;
 import xyz.quartzframework.data.annotation.DiscoverStorages;
+import xyz.quartzframework.data.query.CompositeQueryParser;
+import xyz.quartzframework.data.query.QueryParser;
 import xyz.quartzframework.data.storage.DefaultStorageFactory;
 import xyz.quartzframework.data.storage.StorageDiscovery;
 import xyz.quartzframework.data.storage.StorageFactory;
@@ -28,14 +31,22 @@ public class QuartzDataConfigurer {
     private final PluginBeanDefinitionRegistry pluginBeanDefinitionRegistry;
 
     @Provide
+    @Preferred
     @Priority(0)
-    @ActivateWhenBeanMissing(StorageFactory.class)
-    StorageFactory storageFactory(URLClassLoader classLoader) {
-        return new DefaultStorageFactory(classLoader, pluginBeanFactory);
+    @ActivateWhenBeanMissing(QueryParser.class)
+    QueryParser queryParser() {
+        return new CompositeQueryParser(pluginBeanFactory);
     }
 
     @Provide
     @Priority(1)
+    @ActivateWhenBeanMissing(StorageFactory.class)
+    StorageFactory storageFactory(QueryParser queryParser, URLClassLoader classLoader) {
+        return new DefaultStorageFactory(queryParser, classLoader, pluginBeanFactory);
+    }
+
+    @Provide
+    @Priority(2)
     @ActivateWhenBeanMissing(StorageDiscovery.class)
     StorageDiscovery storageDiscovery() {
         val discoverers = pluginBeanFactory.getBeansWithAnnotation(DiscoverStorages.class);
@@ -45,7 +56,7 @@ public class QuartzDataConfigurer {
     }
 
     @Provide
-    @Priority(2)
+    @Priority(3)
     @ActivateWhenBeanMissing(StorageRegistrar.class)
     StorageRegistrar storageRegistrar(StorageFactory storageFactory, StorageDiscovery storageDiscovery) {
         return new StorageRegistrar(pluginBeanDefinitionRegistry, storageDiscovery, storageFactory);

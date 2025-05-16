@@ -1,5 +1,6 @@
 package xyz.quartzframework.data.storage;
 
+import lombok.RequiredArgsConstructor;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import xyz.quartzframework.data.page.Page;
@@ -13,18 +14,16 @@ import java.lang.reflect.Method;
 import java.util.*;
 import java.util.stream.Stream;
 
+@RequiredArgsConstructor
 public class StorageMethodInterceptor<E> implements MethodInterceptor {
 
+    private final QueryParser queryParser;
+
     private final QueryExecutor<E> executor;
+
     private final Class<E> entityType;
 
-    public StorageMethodInterceptor(QueryExecutor<E> executor, Class<E> entityType) {
-        this.executor = executor;
-        this.entityType = entityType;
-    }
-
     @Override
-    @SuppressWarnings("unchecked")
     public Object invoke(MethodInvocation invocation) throws Throwable {
         Method method = invocation.getMethod();
         if (method.getDeclaringClass().equals(Object.class)
@@ -38,7 +37,7 @@ public class StorageMethodInterceptor<E> implements MethodInterceptor {
         }
         QuartzQuery annotation = method.getAnnotation(QuartzQuery.class);
         if (!isDynamicMethod(method)) return invocation.proceed();
-        DynamicQueryDefinition query = annotation == null ? QueryParser.parse(method.getName()) : QueryParser.parseFriendly(annotation.value());
+        DynamicQueryDefinition query = queryParser.parse(method);
         String queryString = annotation != null ? annotation.value() : method.getName();
         validateReturnType(method, query);
         Object[] args = invocation.getArguments();

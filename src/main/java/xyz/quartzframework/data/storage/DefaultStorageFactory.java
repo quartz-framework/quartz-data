@@ -5,6 +5,7 @@ import lombok.val;
 import xyz.quartzframework.core.bean.factory.PluginBeanFactory;
 import xyz.quartzframework.data.annotation.Storage;
 import xyz.quartzframework.data.annotation.SuperStorage;
+import xyz.quartzframework.data.query.QueryParser;
 import xyz.quartzframework.data.util.GenericTypeUtil;
 import xyz.quartzframework.data.util.ProxyFactoryUtil;
 
@@ -13,6 +14,8 @@ import java.util.Arrays;
 
 @RequiredArgsConstructor
 public class DefaultStorageFactory implements StorageFactory {
+
+    private final QueryParser queryParser;
 
     private final URLClassLoader classLoader;
 
@@ -43,7 +46,7 @@ public class DefaultStorageFactory implements StorageFactory {
         if (bean instanceof StorageProvider<?, ?> provider) {
             val p = (StorageProvider<E, ID>) provider;
             val target = p.create(entityType, idType);
-            val proxyFactory = ProxyFactoryUtil.createProxyFactory(target, entityType, storageInterface, p.getQueryExecutor(target));
+            val proxyFactory = ProxyFactoryUtil.createProxyFactory(queryParser, target, entityType, storageInterface, p.getQueryExecutor(target));
             return (SimpleStorage<E, ID>) proxyFactory.getProxy(classLoader);
         }
         throw new IllegalStateException("Provided class " + implClass.getName() + " is not a StorageProvider");
