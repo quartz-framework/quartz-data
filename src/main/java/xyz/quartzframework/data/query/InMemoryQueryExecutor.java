@@ -22,7 +22,6 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
 
     @Override
     public List<E> execute(DynamicQueryDefinition query, Object[] args) {
-        log.info("Executing query: {}", query);
         List<E> result = new ArrayList<>(source);
         int argIndex = 0;
 
@@ -35,16 +34,11 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
             } else {
                 value = args[argIndex++];
             }
-
-            log.info("Applying condition: {} {} {}", condition.property(), condition.operation(), value);
-
             Object finalValue = value;
             result = result.stream().filter(entity -> {
                 try {
                     Object fieldValue = getNestedFieldValue(entity, condition.property());
-                    boolean matched = match(fieldValue, condition.operation(), finalValue);
-                    log.info(" -> Entity: {}, Field '{}': {}, Match: {}", entity, condition.property(), fieldValue, matched);
-                    return matched;
+                    return match(fieldValue, condition.operation(), finalValue);
                 } catch (Exception e) {
                     log.warn("Failed to evaluate condition on entity: {}", entity, e);
                     return false;
@@ -82,9 +76,6 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
     }
 
     private boolean match(Object fieldValue, Operation operation, Object expectedValue) {
-        log.info("Matching: fieldValue = {} ({}) | expected = {} ({})",
-                fieldValue, fieldValue != null ? fieldValue.getClass() : "null",
-                expectedValue, expectedValue != null ? expectedValue.getClass() : "null");
         try {
             if (operation == Operation.EQUAL) return Objects.equals(fieldValue, expectedValue);
             if (operation == Operation.NOT_EQUAL) return !Objects.equals(fieldValue, expectedValue);
