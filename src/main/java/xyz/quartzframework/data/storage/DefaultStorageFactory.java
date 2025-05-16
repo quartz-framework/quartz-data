@@ -51,4 +51,22 @@ public class DefaultStorageFactory implements StorageFactory {
         }
         throw new IllegalStateException("Provided class " + implClass.getName() + " is not a StorageProvider");
     }
+
+    @Override
+    public Class<?> resolveEntityType(Class<?> storageInterface) {
+        Class<?>[] types = GenericTypeUtil.resolve(storageInterface, SimpleStorage.class);
+        if (types != null && types.length == 2) {
+            return types[0];
+        }
+        throw new IllegalArgumentException("Cannot resolve entity type from: " + storageInterface.getName());
+    }
+
+    @Override
+    public Class<?> resolveIdType(Class<?> storageInterface) {
+        Class<?>[] types = GenericTypeUtil.resolve(storageInterface, SimpleStorage.class);
+        if (types != null && types.length == 2) {
+            return types[1];
+        }
+        throw new IllegalArgumentException("Cannot resolve ID type from: " + storageInterface.getName());
+    }
 }
