@@ -1,7 +1,8 @@
 package xyz.quartzframework.data;
 
 import xyz.quartzframework.data.annotation.Storage;
-import xyz.quartzframework.data.query.QuartzQuery;
+import xyz.quartzframework.data.query.Query;
+import xyz.quartzframework.data.query.QueryParameter;
 import xyz.quartzframework.data.storage.InMemoryStorage;
 
 import java.time.Instant;
@@ -21,10 +22,10 @@ public interface FakeStorage extends InMemoryStorage<FakeEntity, UUID> {
 
     List<FakeEntity> findByIdIn(Collection<UUID> ids);
 
-    @QuartzQuery("find where name like ?1")
+    @Query("find where name like ?1")
     List<FakeEntity> searchByName(String pattern);
 
-    @QuartzQuery("find top 2 where score > ?1 order by score desc")
+    @Query("find top 2 where score > ?1 order by score desc")
     List<FakeEntity> topScorers(int minScore);
 
     List<FakeEntity> findByNameAndActiveTrue(String name);
@@ -47,39 +48,63 @@ public interface FakeStorage extends InMemoryStorage<FakeEntity, UUID> {
 
     Optional<FakeEntity> findFirstByActiveTrueOrderByCreatedAtDesc();
 
-    @QuartzQuery("find where score >= ?1 and active = true order by score desc")
+    @Query("find where score >= ?1 and active = true order by score desc")
     List<FakeEntity> findActivesWithMinScore(int score);
 
-    @QuartzQuery("find where name not like ?1 order by createdAt asc")
+    @Query("find where name not like ?1 order by createdAt asc")
     List<FakeEntity> findByNameExclusionPattern(String pattern);
 
-    @QuartzQuery("find top 1 where score < ?1 and active = true order by createdAt desc")
+    @Query("find top 1 where score < ?1 and active = true order by createdAt desc")
     Optional<FakeEntity> findRecentLowScorer(int maxScore);
 
-    @QuartzQuery("count where name like ?1")
+    @Query("count where name like ?1")
     long countMatchingNames(String pattern);
 
-    @QuartzQuery("exists where name = ?1 and active = true")
+    @Query("exists where name = ?1 and active = true")
     boolean existsActiveByName(String name);
 
-    @QuartzQuery("find where createdAt >= ?1 and createdAt <= ?2 order by createdAt desc")
+    @Query("find where createdAt >= ?1 and createdAt <= ?2 order by createdAt desc")
     List<FakeEntity> findBetweenDates(Instant from, Instant to);
 
-    @QuartzQuery("find where name in ?1 order by name desc")
+    @Query("find where name in ?1 order by name desc")
     List<FakeEntity> findAllByNameInDesc(Collection<String> names);
 
-    @QuartzQuery("exists where score >= ?1 and active = true")
+    @Query("exists where score >= ?1 and active = true")
     boolean existsByMinScoreAndActive(int score);
 
-    @QuartzQuery("count where score >= ?1")
+    @Query("count where score >= ?1")
     long countByScoreGreaterThanEqual(int score);
 
-    @QuartzQuery("count where active = true and score < ?1")
+    @Query("count where active = true and score < ?1")
     long countActiveLowScorers(int maxScore);
 
-    @QuartzQuery("exists where createdAt > ?1")
+    @Query("exists where createdAt > ?1")
     boolean existsByCreatedAfter(Instant date);
 
     List<FakeEntity> findByNameIsNull();
+
+    @Query("find where createdAt >= :from and createdAt <= :to order by createdAt desc")
+    List<FakeEntity> findBetweenDatesWithParameters(
+            @QueryParameter("from") Instant from,
+            @QueryParameter("to") Instant to
+    );
+
+    @Query("exists where name = :name and active = true")
+    boolean existsActiveByNameWithParameters(@QueryParameter("name") String name);
+
+    @Query("count where name like :pattern")
+    long countMatchingNamesWithParameters(@QueryParameter("pattern") String pattern);
+
+    @Query("find top 1 where score < :maxScore and active = true order by createdAt desc")
+    Optional<FakeEntity> findRecentLowScorerWithParameters(@QueryParameter("maxScore") int maxScore);
+
+    @Query("find where name not like :pattern order by createdAt asc")
+    List<FakeEntity> findByNameExclusionPatternWithParameters(@QueryParameter("pattern") String pattern);
+
+    @Query("find where name in :names order by name asc")
+    List<FakeEntity> findAllByNameInWithParameters(@QueryParameter("names") Collection<String> names);
+
+    @Query("find where createdAt >= :from and createdAt <= :to")
+    List<FakeEntity> brokenQuery(@QueryParameter("from") Instant from);
 
 }

@@ -43,6 +43,10 @@ public interface Page<T> {
         return Page.of(filtered, page(), size(), totalElements());
     }
 
+    static <T> Page<T> of(List<T> content, Pagination pagination, long totalElements) {
+        return new SimplePage<>(content, pagination.page(), pagination.size(), totalElements);
+    }
+
     static <T> Page<T> of(List<T> content, int page, int size, long totalElements) {
         return new SimplePage<>(content, page, size, totalElements);
     }

@@ -1,6 +1,9 @@
 package xyz.quartzframework.data.query;
 
 import lombok.extern.slf4j.Slf4j;
+import xyz.quartzframework.data.page.Page;
+import xyz.quartzframework.data.page.Pagination;
+import xyz.quartzframework.data.util.ParameterBindingUtil;
 
 import java.lang.reflect.Field;
 import java.util.*;
@@ -18,17 +21,23 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
     }
 
     @Override
-    public List<E> execute(DynamicQueryDefinition query, Object[] args) {
+    public List<E> find(DynamicQueryDefinition query, Object[] args) {
         List<E> result = new ArrayList<>(source);
         int argIndex = 0;
 
         for (Condition condition : query.conditions()) {
             Object value;
+
             if (condition.fixedValue() != null || condition.operation() == Operation.IS_NULL || condition.operation() == Operation.IS_NOT_NULL) {
                 value = condition.fixedValue();
+            } else if (condition.namedParameter() != null) {
+                value = ParameterBindingUtil.findNamedParameter(query.method(), condition.namedParameter(), args);
             } else if (condition.paramIndex() != null) {
                 value = args[condition.paramIndex()];
             } else {
+                if (argIndex >= args.length) {
+                    throw new ParameterBindingException("No argument available for condition: " + condition);
+                }
                 value = args[argIndex++];
             }
             Object finalValue = value;
@@ -72,6 +81,26 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
             result = result.subList(0, query.limit());
         }
         return result;
+    }
+
+    @Override
+    public Page<E> find(DynamicQueryDefinition query, Object[] args, Pagination pagination) {
+        List<E> results = find(query, args);
+        int total = results.size();
+        int from = Math.min(pagination.offset(), total);
+        int to = Math.min(from + pagination.size(), total);
+        List<E> pageItems = results.subList(from, to);
+        return Page.of(pageItems, pagination, total);
+    }
+
+    @Override
+    public long count(DynamicQueryDefinition query, Object[] args) {
+        return find(query, args).size();
+    }
+
+    @Override
+    public boolean exists(DynamicQueryDefinition query, Object[] args) {
+        return !find(query, args).isEmpty();
     }
 
     private boolean match(Object fieldValue, Operation operation, Object expectedValue) {

@@ -3,6 +3,7 @@ package xyz.quartzframework.data.query;
 import lombok.val;
 import xyz.quartzframework.core.bean.annotation.Injectable;
 import xyz.quartzframework.core.bean.annotation.NamedInstance;
+import xyz.quartzframework.data.util.ParameterBindingUtil;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -17,12 +18,17 @@ public class QQLQueryParser implements QueryParser {
 
     @Override
     public boolean supports(Method method) {
-        return method.isAnnotationPresent(QuartzQuery.class);
+        val a = method.getAnnotation(Query.class);
+        return a != null && isInPattern(a);
+    }
+
+    private boolean isInPattern(Query query) {
+        return query.value().matches("^(find|count|exists).*");
     }
 
     @Override
     public String queryString(Method method) {
-        val annotation = method.getAnnotation(QuartzQuery.class);
+        val annotation = method.getAnnotation(Query.class);
         if (annotation == null) {
             return null;
         }
@@ -85,10 +91,13 @@ public class QQLQueryParser implements QueryParser {
 
                 Integer paramIndex = null;
                 Object fixedValue = null;
+                String namedParameter = null;
                 if (value != null) {
                     if (value.startsWith("?")) {
                         if (value.length() == 1) {
                             paramIndex = positionalParamCounter++;
+                        } else if (value.startsWith(":")) {
+                            namedParameter = value.substring(1);
                         } else {
                             paramIndex = Integer.parseInt(value.substring(1)) - 1;
                         }
@@ -103,7 +112,7 @@ public class QQLQueryParser implements QueryParser {
                         throw new IllegalArgumentException("Unsupported value literal: " + value);
                     }
                 }
-                conditions.add(new Condition(field, op, fixedValue, paramIndex));
+                conditions.add(new Condition(field, op, fixedValue, paramIndex, namedParameter));
             }
         }
         if (!orderPart.isEmpty()) {
@@ -115,6 +124,8 @@ public class QQLQueryParser implements QueryParser {
                 orders.add(new Order(prop, desc));
             }
         }
-        return new DynamicQueryDefinition(action, conditions, orders, limit, distinct, false);
+        val def = new DynamicQueryDefinition(method, action, conditions, orders, limit, distinct, false, null);
+        ParameterBindingUtil.validateNamedParameters(method, def);
+        return def;
     }
 }

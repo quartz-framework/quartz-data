@@ -3,6 +3,7 @@ package xyz.quartzframework.data;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import xyz.quartzframework.data.query.InMemoryQueryExecutor;
+import xyz.quartzframework.data.query.ParameterBindingException;
 import xyz.quartzframework.data.query.SimpleQueryParser;
 import xyz.quartzframework.data.util.ProxyFactoryUtil;
 
@@ -54,7 +55,6 @@ class FakeStorageTest {
 
     @Test
     void testFindByIdIn() {
-        System.out.println(storage.getClass());
         List<FakeEntity> result = storage.findByIdIn(List.of(uuid1, uuid2));
         assertEquals(2, result.size());
     }
@@ -638,5 +638,66 @@ class FakeStorageTest {
     void testNotLikeWithPercentage() {
         List<FakeEntity> result = storage.findByNameNotLike("%z%");
         assertEquals(3, result.size());
+    }
+
+    @Test
+    void testFindBetweenDates_Named() {
+        Instant start = Instant.parse("2024-12-31T23:40:00Z");
+        Instant end = Instant.parse("2025-01-01T00:00:00Z");
+        List<FakeEntity> result = storage.findBetweenDatesWithParameters(start, end);
+        assertEquals(3, result.size());
+    }
+
+    @Test
+    void testExistsActiveByName_Named() {
+        assertTrue(storage.existsActiveByNameWithParameters("Alice"));
+        assertFalse(storage.existsActiveByNameWithParameters("Bob"));
+    }
+
+    @Test
+    void testCountMatchingNames_Named() {
+        long count = storage.countMatchingNamesWithParameters("%li%");
+        assertEquals(2, count);
+    }
+
+    @Test
+    void testFindRecentLowScorer_Named() {
+        Optional<FakeEntity> result = storage.findRecentLowScorerWithParameters(80);
+        assertTrue(result.isPresent());
+        assertEquals("Charlie", result.get().getName());
+    }
+
+    @Test
+    void testFindByNameExclusionPattern_Named() {
+        List<FakeEntity> result = storage.findByNameExclusionPatternWithParameters("%li%");
+        assertEquals(1, result.size());
+        assertEquals("Bob", result.get(0).getName());
+    }
+
+    @Test
+    void testFindAllByNameInWithParameters() {
+        List<FakeEntity> result = storage.findAllByNameInWithParameters(List.of("Alice", "Charlie"));
+        assertEquals(2, result.size());
+        assertEquals("Alice", result.get(0).getName());
+        assertEquals("Charlie", result.get(1).getName());
+    }
+
+    @Test
+    void testFindAllByNameInWithParameters_EmptyList() {
+        List<FakeEntity> result = storage.findAllByNameInWithParameters(List.of());
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void testFindAllByNameInWithParameters_SingleMatch() {
+        List<FakeEntity> result = storage.findAllByNameInWithParameters(List.of("Bob"));
+        assertEquals(1, result.size());
+        assertEquals("Bob", result.get(0).getName());
+    }
+
+    @Test
+    void testBrokenQueryBindingError() {
+        Instant now = Instant.now();
+        assertThrows(ParameterBindingException.class, () -> storage.brokenQuery(now.minusSeconds(1000)));
     }
 }

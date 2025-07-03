@@ -18,7 +18,12 @@ public class MethodQueryParser implements QueryParser {
 
     @Override
     public boolean supports(Method method) {
-        return method.getAnnotations().length == 0 && method.getName().matches("^(find|count|exists).*");
+        val a = method.getAnnotation(Query.class);
+        return a == null && isInPattern(method);
+    }
+
+    private boolean isInPattern(Method method) {
+        return method.getName().matches("^(find|count|exists).*");
     }
 
     @Override
@@ -79,7 +84,10 @@ public class MethodQueryParser implements QueryParser {
         if (!conditionPart.isEmpty()) {
             conditions = parseConditions(conditionPart);
         }
-        return new DynamicQueryDefinition(action, conditions, orders, limit, distinct, false);
+        if (stripPrefix(name, action).isEmpty()) {
+            return new DynamicQueryDefinition(method, action, List.of(), List.of(), null, false, false, null);
+        }
+        return new DynamicQueryDefinition(method, action, conditions, orders, limit, distinct, false, null);
     }
 
     private QueryAction extractAction(String methodName) {
