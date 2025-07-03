@@ -3,6 +3,8 @@ package xyz.quartzframework.data;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import xyz.quartzframework.data.query.InMemoryQueryExecutor;
+import xyz.quartzframework.data.query.ParameterBindingException;
+import xyz.quartzframework.data.query.SimpleQueryParser;
 import xyz.quartzframework.data.util.ProxyFactoryUtil;
 
 import java.time.Instant;
@@ -29,7 +31,7 @@ class FakeStorageTest {
         );
 
         InMemoryQueryExecutor<FakeEntity> executor = new InMemoryQueryExecutor<>(data);
-        storage = ProxyFactoryUtil.createProxy(FakeStorage.class, executor, FakeEntity.class);
+        storage = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, executor, FakeEntity.class);
     }
 
     @Test
@@ -53,7 +55,6 @@ class FakeStorageTest {
 
     @Test
     void testFindByIdIn() {
-        System.out.println(storage.getClass());
         List<FakeEntity> result = storage.findByIdIn(List.of(uuid1, uuid2));
         assertEquals(2, result.size());
     }
@@ -196,7 +197,7 @@ class FakeStorageTest {
     void testFindByNameIsNull() {
         FakeEntity unnamed = new FakeEntity(UUID.randomUUID(), null, 10, true, Instant.parse("2025-01-01T00:01:00Z"));
         InMemoryQueryExecutor<FakeEntity> executor = new InMemoryQueryExecutor<>(List.of(unnamed));
-        FakeStorage tempStorage = ProxyFactoryUtil.createProxy(FakeStorage.class, executor, FakeEntity.class);
+        FakeStorage tempStorage = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, executor, FakeEntity.class);
         List<FakeEntity> result = tempStorage.findByNameIsNull();
         assertEquals(1, result.size());
     }
@@ -314,7 +315,7 @@ class FakeStorageTest {
     @Test
     void testFindByNameWithSpecialCharacters() {
         FakeEntity special = new FakeEntity(UUID.randomUUID(), "Dr. Alice!", 10, true, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(special)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(special)), FakeEntity.class);
         List<FakeEntity> result = temp.findByName("Dr. Alice!");
         assertEquals(1, result.size());
     }
@@ -322,7 +323,7 @@ class FakeStorageTest {
     @Test
     void testExistsByNameWhitespaceSensitivity() {
         FakeEntity spaced = new FakeEntity(UUID.randomUUID(), " Alice ", 10, true, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(spaced)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(spaced)), FakeEntity.class);
         assertFalse(temp.existsByName("Alice"));
     }
 
@@ -449,7 +450,7 @@ class FakeStorageTest {
     @Test
     void testFindByNameIsNullAndInactive() {
         FakeEntity e = new FakeEntity(UUID.randomUUID(), null, 0, false, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(e)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(e)), FakeEntity.class);
         List<FakeEntity> result = temp.findByNameIsNull();
         assertEquals(1, result.size());
         assertFalse(result.get(0).isActive());
@@ -521,7 +522,7 @@ class FakeStorageTest {
     @Test
     void testFindByNameWithTrailingSpaces() {
         FakeEntity custom = new FakeEntity(UUID.randomUUID(), "Alice ", 42, true, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(custom)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(custom)), FakeEntity.class);
         List<FakeEntity> result = temp.findByName("Alice ");
         assertEquals(1, result.size());
     }
@@ -546,7 +547,7 @@ class FakeStorageTest {
     @Test
     void testSearchByNameUnderscoreWildcard() {
         FakeEntity user = new FakeEntity(UUID.randomUUID(), "A_ice", 15, true, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(user)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(user)), FakeEntity.class);
         List<FakeEntity> result = temp.searchByName("A_ice");
         assertEquals(1, result.size());
     }
@@ -591,7 +592,7 @@ class FakeStorageTest {
     @Test
     void testLikeSpecialCharacterEscaping() {
         FakeEntity special = new FakeEntity(UUID.randomUUID(), "Dr. Bob$", 10, true, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(special)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(special)), FakeEntity.class);
         List<FakeEntity> result = temp.searchByName("Dr. Bob$");
         assertEquals(1, result.size());
         assertEquals("Dr. Bob$", result.get(0).getName());
@@ -600,7 +601,7 @@ class FakeStorageTest {
     @Test
     void testLikeWithUnderscore() {
         FakeEntity underscored = new FakeEntity(UUID.randomUUID(), "Jo_n", 10, true, Instant.now());
-        FakeStorage temp = ProxyFactoryUtil.createProxy(FakeStorage.class, new InMemoryQueryExecutor<>(List.of(underscored)), FakeEntity.class);
+        FakeStorage temp = ProxyFactoryUtil.createProxy(new SimpleQueryParser(), FakeStorage.class, new InMemoryQueryExecutor<>(List.of(underscored)), FakeEntity.class);
         List<FakeEntity> result = temp.searchByName("Jo_n");
         assertEquals(1, result.size());
         assertEquals("Jo_n", result.get(0).getName());
@@ -637,5 +638,66 @@ class FakeStorageTest {
     void testNotLikeWithPercentage() {
         List<FakeEntity> result = storage.findByNameNotLike("%z%");
         assertEquals(3, result.size());
+    }
+
+    @Test
+    void testFindBetweenDates_Named() {
+        Instant start = Instant.parse("2024-12-31T23:40:00Z");
+        Instant end = Instant.parse("2025-01-01T00:00:00Z");
+        List<FakeEntity> result = storage.findBetweenDatesWithParameters(start, end);
+        assertEquals(3, result.size());
+    }
+
+    @Test
+    void testExistsActiveByName_Named() {
+        assertTrue(storage.existsActiveByNameWithParameters("Alice"));
+        assertFalse(storage.existsActiveByNameWithParameters("Bob"));
+    }
+
+    @Test
+    void testCountMatchingNames_Named() {
+        long count = storage.countMatchingNamesWithParameters("%li%");
+        assertEquals(2, count);
+    }
+
+    @Test
+    void testFindRecentLowScorer_Named() {
+        Optional<FakeEntity> result = storage.findRecentLowScorerWithParameters(80);
+        assertTrue(result.isPresent());
+        assertEquals("Charlie", result.get().getName());
+    }
+
+    @Test
+    void testFindByNameExclusionPattern_Named() {
+        List<FakeEntity> result = storage.findByNameExclusionPatternWithParameters("%li%");
+        assertEquals(1, result.size());
+        assertEquals("Bob", result.get(0).getName());
+    }
+
+    @Test
+    void testFindAllByNameInWithParameters() {
+        List<FakeEntity> result = storage.findAllByNameInWithParameters(List.of("Alice", "Charlie"));
+        assertEquals(2, result.size());
+        assertEquals("Alice", result.get(0).getName());
+        assertEquals("Charlie", result.get(1).getName());
+    }
+
+    @Test
+    void testFindAllByNameInWithParameters_EmptyList() {
+        List<FakeEntity> result = storage.findAllByNameInWithParameters(List.of());
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void testFindAllByNameInWithParameters_SingleMatch() {
+        List<FakeEntity> result = storage.findAllByNameInWithParameters(List.of("Bob"));
+        assertEquals(1, result.size());
+        assertEquals("Bob", result.get(0).getName());
+    }
+
+    @Test
+    void testBrokenQueryBindingError() {
+        Instant now = Instant.now();
+        assertThrows(ParameterBindingException.class, () -> storage.brokenQuery(now.minusSeconds(1000)));
     }
 }

@@ -1,11 +1,12 @@
 package xyz.quartzframework.data.storage;
 
+import lombok.RequiredArgsConstructor;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import xyz.quartzframework.data.page.Page;
 import xyz.quartzframework.data.page.Pagination;
 import xyz.quartzframework.data.query.DynamicQueryDefinition;
-import xyz.quartzframework.data.query.QuartzQuery;
+import xyz.quartzframework.data.query.Query;
 import xyz.quartzframework.data.query.QueryExecutor;
 import xyz.quartzframework.data.query.QueryParser;
 
@@ -13,18 +14,16 @@ import java.lang.reflect.Method;
 import java.util.*;
 import java.util.stream.Stream;
 
+@RequiredArgsConstructor
 public class StorageMethodInterceptor<E> implements MethodInterceptor {
 
+    private final QueryParser queryParser;
+
     private final QueryExecutor<E> executor;
+
     private final Class<E> entityType;
 
-    public StorageMethodInterceptor(QueryExecutor<E> executor, Class<E> entityType) {
-        this.executor = executor;
-        this.entityType = entityType;
-    }
-
     @Override
-    @SuppressWarnings("unchecked")
     public Object invoke(MethodInvocation invocation) throws Throwable {
         Method method = invocation.getMethod();
         if (method.getDeclaringClass().equals(Object.class)
@@ -36,77 +35,69 @@ public class StorageMethodInterceptor<E> implements MethodInterceptor {
         if (method.isDefault()) {
             return invocation.proceed();
         }
-        QuartzQuery annotation = method.getAnnotation(QuartzQuery.class);
         if (!isDynamicMethod(method)) return invocation.proceed();
-        DynamicQueryDefinition query = annotation == null ? QueryParser.parse(method.getName()) : QueryParser.parseFriendly(annotation.value());
-        String queryString = annotation != null ? annotation.value() : method.getName();
+        DynamicQueryDefinition query = queryParser.parse(method);
+        String queryString = queryParser.queryString(method);
         validateReturnType(method, query);
         Object[] args = invocation.getArguments();
         long dynamicConditions = query
                 .conditions()
                 .stream()
-                .filter(c -> c.fixedValue() == null)
+                .filter(c -> c.fixedValue() == null && c.paramIndex() != null)
                 .count();
         if (args.length < dynamicConditions) {
             throw new IllegalStateException("Expected " + dynamicConditions + " arguments for query '" + queryString + "', but got " + args.length);
         }
-        List<E> results = Optional.ofNullable(executor.execute(query, args)).orElse(Collections.emptyList());
         Class<?> returnType = method.getReturnType();
         return switch (query.action()) {
-            case FIND -> handleFind(returnType, results, args, queryString);
-            case EXISTS -> handleExists(returnType, results, queryString);
-            case COUNT -> handleCount(returnType, results, queryString);
+            case FIND -> handleFind(query, returnType, args, queryString);
+            case COUNT -> {
+                if (isNumeric(returnType)) yield executor.count(query, args);
+                throw new UnsupportedOperationException("COUNT must return numeric type: " + method.getName());
+            }
+            case EXISTS -> {
+                if (returnType == boolean.class || returnType == Boolean.class) yield executor.exists(query, args);
+                throw new UnsupportedOperationException("EXISTS must return boolean: " + method.getName());
+            }
         };
     }
 
-    private Object handleExists(Class<?> returnType, List<E> results, String methodName) {
-        if (returnType == boolean.class || returnType == Boolean.class) {
-            return !results.isEmpty();
-        }
-        throw new UnsupportedOperationException("EXISTS methods must return boolean: " + methodName);
-    }
-
-    private Object handleCount(Class<?> returnType, List<E> results, String methodName) {
-        if (returnType == long.class || returnType == Long.class || Number.class.isAssignableFrom(returnType)) {
-            return (long) results.size();
-        }
-        throw new UnsupportedOperationException("COUNT methods must return long or Number: " + methodName);
-    }
-
-    private Object handleFind(Class<?> returnType, List<E> results, Object[] args, String name) {
-        if (Set.class.isAssignableFrom(returnType)) {
-            return new HashSet<>(results);
-        }
-        if (Stream.class.isAssignableFrom(returnType)) {
-            return results.stream();
-        }
-        if (List.class.isAssignableFrom(returnType)) {
-            return results;
-        }
-        if (Optional.class.isAssignableFrom(returnType)) {
-            return results.stream().findFirst();
-        }
+    private Object handleFind(DynamicQueryDefinition query, Class<?> returnType, Object[] args, String methodName) {
         if (Page.class.isAssignableFrom(returnType)) {
-            Pagination pagination = Stream.of(args)
-                    .filter(arg -> arg instanceof Pagination)
+            Pagination pagination = Arrays.stream(args)
+                    .filter(Pagination.class::isInstance)
                     .map(Pagination.class::cast)
                     .findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("Pagination required for paged method"));
-            return Page.fromList(results, pagination);
+            return executor.find(query, args, pagination);
         }
+        List<?> results = executor.find(query, args);
+        if (Set.class.isAssignableFrom(returnType)) return new HashSet<>(results);
+        if (Stream.class.isAssignableFrom(returnType)) return results.stream();
+        if (List.class.isAssignableFrom(returnType)) return results;
+        if (Optional.class.isAssignableFrom(returnType)) return results.stream().findFirst();
         if (entityType.isAssignableFrom(returnType)) {
             return results.stream().findFirst()
-                    .orElseThrow(() -> new IllegalStateException("No result found for: " + name));
+                    .orElseThrow(() -> new IllegalStateException("No result found for: " + methodName));
         }
         throw new UnsupportedOperationException("Unsupported return type in FIND: " + returnType.getName());
     }
 
+    private boolean isNumeric(Class<?> type) {
+        return type == long.class || type == Long.class || Number.class.isAssignableFrom(type);
+    }
+
     private boolean isDynamicMethod(Method method) {
-        if (method.isAnnotationPresent(QuartzQuery.class)) return true;
-        String name = method.getName();
-        return name.startsWith("find") ||
-                name.startsWith("count") ||
-                name.startsWith("exists");
+        if (method.isAnnotationPresent(Query.class)) return true;
+        try {
+            SimpleStorage.class.getMethod(method.getName(), method.getParameterTypes());
+            return false;
+        } catch (NoSuchMethodException e) {
+            String name = method.getName();
+            return name.startsWith("find") ||
+                    name.startsWith("count") ||
+                    name.startsWith("exists");
+        }
     }
 
     private void validateReturnType(Method method, DynamicQueryDefinition query) {

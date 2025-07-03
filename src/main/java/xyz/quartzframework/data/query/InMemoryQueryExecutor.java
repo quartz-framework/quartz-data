@@ -1,12 +1,12 @@
 package xyz.quartzframework.data.query;
 
 import lombok.extern.slf4j.Slf4j;
+import xyz.quartzframework.data.page.Page;
+import xyz.quartzframework.data.page.Pagination;
+import xyz.quartzframework.data.util.ParameterBindingUtil;
 
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -21,30 +21,30 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
     }
 
     @Override
-    public List<E> execute(DynamicQueryDefinition query, Object[] args) {
-        log.info("Executing query: {}", query);
+    public List<E> find(DynamicQueryDefinition query, Object[] args) {
         List<E> result = new ArrayList<>(source);
         int argIndex = 0;
 
         for (Condition condition : query.conditions()) {
             Object value;
+
             if (condition.fixedValue() != null || condition.operation() == Operation.IS_NULL || condition.operation() == Operation.IS_NOT_NULL) {
                 value = condition.fixedValue();
+            } else if (condition.namedParameter() != null) {
+                value = ParameterBindingUtil.findNamedParameter(query.method(), condition.namedParameter(), args);
             } else if (condition.paramIndex() != null) {
                 value = args[condition.paramIndex()];
             } else {
+                if (argIndex >= args.length) {
+                    throw new ParameterBindingException("No argument available for condition: " + condition);
+                }
                 value = args[argIndex++];
             }
-
-            log.info("Applying condition: {} {} {}", condition.property(), condition.operation(), value);
-
             Object finalValue = value;
             result = result.stream().filter(entity -> {
                 try {
                     Object fieldValue = getNestedFieldValue(entity, condition.property());
-                    boolean matched = match(fieldValue, condition.operation(), finalValue);
-                    log.info(" -> Entity: {}, Field '{}': {}, Match: {}", entity, condition.property(), fieldValue, matched);
-                    return matched;
+                    return match(fieldValue, condition.operation(), finalValue);
                 } catch (Exception e) {
                     log.warn("Failed to evaluate condition on entity: {}", entity, e);
                     return false;
@@ -74,17 +74,36 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
                 return 0;
             });
         }
-
+        if (query.distinct()) {
+            result = new ArrayList<>(new LinkedHashSet<>(result));
+        }
         if (query.limit() != null && query.limit() > 0 && result.size() > query.limit()) {
             result = result.subList(0, query.limit());
         }
         return result;
     }
 
+    @Override
+    public Page<E> find(DynamicQueryDefinition query, Object[] args, Pagination pagination) {
+        List<E> results = find(query, args);
+        int total = results.size();
+        int from = Math.min(pagination.offset(), total);
+        int to = Math.min(from + pagination.size(), total);
+        List<E> pageItems = results.subList(from, to);
+        return Page.of(pageItems, pagination, total);
+    }
+
+    @Override
+    public long count(DynamicQueryDefinition query, Object[] args) {
+        return find(query, args).size();
+    }
+
+    @Override
+    public boolean exists(DynamicQueryDefinition query, Object[] args) {
+        return !find(query, args).isEmpty();
+    }
+
     private boolean match(Object fieldValue, Operation operation, Object expectedValue) {
-        log.info("Matching: fieldValue = {} ({}) | expected = {} ({})",
-                fieldValue, fieldValue != null ? fieldValue.getClass() : "null",
-                expectedValue, expectedValue != null ? expectedValue.getClass() : "null");
         try {
             if (operation == Operation.EQUAL) return Objects.equals(fieldValue, expectedValue);
             if (operation == Operation.NOT_EQUAL) return !Objects.equals(fieldValue, expectedValue);

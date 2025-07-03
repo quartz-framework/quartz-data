@@ -15,8 +15,8 @@ public class GenericTypeUtil {
     }
 
     private Class<?>[] resolveFromInterfaces(Type[] interfaces, Class<?> targetSuper) {
-        for (Type iface : interfaces) {
-            if (iface instanceof ParameterizedType pt) {
+        for (Type type : interfaces) {
+            if (type instanceof ParameterizedType pt) {
                 if (pt.getRawType() instanceof Class<?> raw && targetSuper.isAssignableFrom(raw)) {
                     Type[] args = pt.getActualTypeArguments();
                     if (args.length == 2 && args[0] instanceof Class<?> && args[1] instanceof Class<?>) {
@@ -26,10 +26,11 @@ public class GenericTypeUtil {
                         };
                     }
                 }
+                assert pt.getRawType() instanceof Class<?>;
                 Class<?> rawClass = (Class<?>) pt.getRawType();
                 Class<?>[] result = resolveFromInterfaces(rawClass.getGenericInterfaces(), targetSuper);
                 if (result != null) return result;
-            } else if (iface instanceof Class<?> raw) {
+            } else if (type instanceof Class<?> raw) {
                 Class<?>[] result = resolveFromInterfaces(raw.getGenericInterfaces(), targetSuper);
                 if (result != null) return result;
             }

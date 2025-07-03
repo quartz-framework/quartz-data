@@ -2,9 +2,11 @@ package xyz.quartzframework.data.storage;
 
 import lombok.RequiredArgsConstructor;
 import lombok.val;
+import org.aopalliance.intercept.MethodInterceptor;
 import xyz.quartzframework.core.bean.factory.PluginBeanFactory;
 import xyz.quartzframework.data.annotation.Storage;
 import xyz.quartzframework.data.annotation.SuperStorage;
+import xyz.quartzframework.data.query.QueryParser;
 import xyz.quartzframework.data.util.GenericTypeUtil;
 import xyz.quartzframework.data.util.ProxyFactoryUtil;
 
@@ -13,6 +15,8 @@ import java.util.Arrays;
 
 @RequiredArgsConstructor
 public class DefaultStorageFactory implements StorageFactory {
+
+    private final QueryParser queryParser;
 
     private final URLClassLoader classLoader;
 
@@ -43,9 +47,28 @@ public class DefaultStorageFactory implements StorageFactory {
         if (bean instanceof StorageProvider<?, ?> provider) {
             val p = (StorageProvider<E, ID>) provider;
             val target = p.create(entityType, idType);
-            val proxyFactory = ProxyFactoryUtil.createProxyFactory(target, entityType, storageInterface, p.getQueryExecutor(target));
+            val interceptors = Arrays.stream(annotation.interceptors()).map(beanFactory::getBean).toArray(MethodInterceptor[]::new);
+            val proxyFactory = ProxyFactoryUtil.createProxyFactory(queryParser, target, entityType, storageInterface, p.getQueryExecutor(target), interceptors);
             return (SimpleStorage<E, ID>) proxyFactory.getProxy(classLoader);
         }
         throw new IllegalStateException("Provided class " + implClass.getName() + " is not a StorageProvider");
+    }
+
+    @Override
+    public Class<?> resolveEntityType(Class<?> storageInterface) {
+        Class<?>[] types = GenericTypeUtil.resolve(storageInterface, SimpleStorage.class);
+        if (types != null && types.length == 2) {
+            return types[0];
+        }
+        throw new IllegalArgumentException("Cannot resolve entity type from: " + storageInterface.getName());
+    }
+
+    @Override
+    public Class<?> resolveIdType(Class<?> storageInterface) {
+        Class<?>[] types = GenericTypeUtil.resolve(storageInterface, SimpleStorage.class);
+        if (types != null && types.length == 2) {
+            return types[1];
+        }
+        throw new IllegalArgumentException("Cannot resolve ID type from: " + storageInterface.getName());
     }
 }
