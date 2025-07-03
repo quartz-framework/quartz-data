@@ -3,7 +3,6 @@ package xyz.quartzframework.data.storage;
 import xyz.quartzframework.data.page.Page;
 import xyz.quartzframework.data.page.Pagination;
 import xyz.quartzframework.data.page.Sort;
-import xyz.quartzframework.data.query.Example;
 import xyz.quartzframework.data.util.IdentityUtil;
 import xyz.quartzframework.data.util.SortUtil;
 
@@ -34,25 +33,8 @@ public class HashMapStorage<E, ID> implements InMemoryStorage<E, ID> {
     }
 
     @Override
-    public long count(Example<E> example) {
-        return storage.values().stream().filter(example::matches).count();
-    }
-
-    @Override
     public boolean exists(ID id) {
         return storage.containsKey(id);
-    }
-
-    @Override
-    public boolean exists(Example<E> example) {
-        return storage.values().stream().anyMatch(example::matches);
-    }
-
-    @Override
-    public Page<E> find(Example<E> example, Pagination pagination) {
-        List<E> filtered = storage.values().stream().filter(example::matches).toList();
-        SortUtil.sortList(filtered, pagination.sort());
-        return Page.fromList(filtered, pagination);
     }
 
     @Override
@@ -90,36 +72,10 @@ public class HashMapStorage<E, ID> implements InMemoryStorage<E, ID> {
     }
 
     @Override
-    public void delete(Example<E> example) {
-        List<ID> toDelete = storage.entrySet().stream()
-                .filter(entry -> example.matches(entry.getValue()))
-                .map(Map.Entry::getKey)
-                .toList();
-
-        toDelete.forEach(storage::remove);
-    }
-
-    @Override
     public void delete(Iterable<E> entities) {
         for (E entity : entities) {
             delete(entity);
         }
-    }
-
-    @Override
-    public List<E> find(Example<E> example) {
-        return storage
-                .values()
-                .stream()
-                .filter(example::matches)
-                .toList();
-    }
-
-    @Override
-    public List<E> find(Example<E> example, Sort sort) {
-        List<E> result = find(example);
-        SortUtil.sortList(result, sort);
-        return result;
     }
 
     @Override
