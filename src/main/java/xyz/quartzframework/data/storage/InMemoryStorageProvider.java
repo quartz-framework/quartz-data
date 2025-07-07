@@ -12,6 +12,6 @@ public class InMemoryStorageProvider implements StorageProvider {
 
     @Override
     public <E, ID> QueryExecutor<E> getQueryExecutor(SimpleStorage<E, ID> storage) {
-        return new InMemoryQueryExecutor<>(storage.findAll());
+        return new InMemoryQueryExecutor<>(storage.findAll(), storage.getEntityClass());
     }
 }

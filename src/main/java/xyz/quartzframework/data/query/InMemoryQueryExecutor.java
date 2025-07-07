@@ -1,12 +1,16 @@
 package xyz.quartzframework.data.query;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import lombok.val;
+import xyz.quartzframework.data.entity.Attribute;
 import xyz.quartzframework.data.page.Page;
 import xyz.quartzframework.data.page.Pagination;
 import xyz.quartzframework.data.util.ParameterBindingUtil;
 
 import java.lang.reflect.Field;
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -16,41 +20,66 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
 
     private final Collection<E> source;
 
-    public InMemoryQueryExecutor(Collection<E> source) {
+    @Getter
+    private final Class<E> entityType;
+
+    public InMemoryQueryExecutor(Collection<E> source, Class<E> entityType) {
         this.source = List.copyOf(source);
+        this.entityType = entityType;
     }
 
     @Override
     public List<E> find(DynamicQueryDefinition query, Object[] args) {
         List<E> result = new ArrayList<>(source);
+
+        List<List<Predicate<E>>> orGroups = new ArrayList<>();
+        List<Predicate<E>> currentGroup = new ArrayList<>();
         int argIndex = 0;
 
-        for (Condition condition : query.conditions()) {
+        for (QueryCondition condition : query.queryConditions()) {
             Object value;
 
-            if (condition.fixedValue() != null || condition.operation() == Operation.IS_NULL || condition.operation() == Operation.IS_NOT_NULL) {
-                value = condition.fixedValue();
-            } else if (condition.namedParameter() != null) {
-                value = ParameterBindingUtil.findNamedParameter(query.method(), condition.namedParameter(), args);
-            } else if (condition.paramIndex() != null) {
-                value = args[condition.paramIndex()];
+            if (condition.getFixedValue() != null || condition.getOperation() == Operation.IS_NULL || condition.getOperation() == Operation.IS_NOT_NULL) {
+                value = condition.getFixedValue();
+            } else if (condition.getNamedParameter() != null) {
+                value = ParameterBindingUtil.findNamedParameter(query.method(), condition.getNamedParameter(), args);
+            } else if (condition.getParamIndex() != null) {
+                value = args[condition.getParamIndex()];
             } else {
                 if (argIndex >= args.length) {
                     throw new ParameterBindingException("No argument available for condition: " + condition);
                 }
                 value = args[argIndex++];
             }
+
             Object finalValue = value;
-            result = result.stream().filter(entity -> {
+            Predicate<E> predicate = entity -> {
                 try {
-                    Object fieldValue = getNestedFieldValue(entity, condition.property());
-                    return match(fieldValue, condition.operation(), finalValue, condition);
+                    Object fieldValue = getNestedFieldValue(entity, condition.getAttribute().name());
+                    return match(fieldValue, condition.getOperation(), finalValue, condition);
                 } catch (Exception e) {
                     log.warn("Failed to evaluate condition on entity: {}", entity, e);
                     return false;
                 }
-            }).collect(Collectors.toList());
+            };
+
+            if (condition.isOr()) {
+                if (!currentGroup.isEmpty()) {
+                    orGroups.add(currentGroup);
+                    currentGroup = new ArrayList<>();
+                }
+            }
+            currentGroup.add(predicate);
         }
+        if (!currentGroup.isEmpty()) {
+            orGroups.add(currentGroup);
+        }
+
+        Predicate<E> finalPredicate = orGroups.stream()
+                .map(group -> group.stream().reduce(x -> true, Predicate::and))
+                .reduce(x -> false, Predicate::or);
+
+        result = result.stream().filter(finalPredicate).collect(Collectors.toList());
 
         if (!query.orders().isEmpty()) {
             result.sort((a, b) -> {
@@ -74,12 +103,19 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
                 return 0;
             });
         }
+
         if (query.distinct()) {
             result = new ArrayList<>(new LinkedHashSet<>(result));
         }
+
         if (query.limit() != null && query.limit() > 0 && result.size() > query.limit()) {
             result = result.subList(0, query.limit());
         }
+
+        if (!query.returnType().isAssignableFrom(getEntityType()) && query.projectionFields() != null) {
+            result = applyProjection(result, query);
+        }
+
         return result;
     }
 
@@ -103,19 +139,18 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
         return !find(query, args).isEmpty();
     }
 
-    private boolean match(Object fieldValue, Operation operation, Object expectedValue, Condition condition) {
+    private boolean match(Object fieldValue, Operation operation, Object expectedValue, QueryCondition condition) {
         try {
-            boolean ignoreCase = condition.ignoreCase();
+            boolean ignoreCase = condition.isIgnoreCase();
+            val attribute = condition.getAttribute();
+            if (ignoreCase && fieldValue instanceof String f && expectedValue instanceof String e) {
+                fieldValue = attribute.applyCaseFunction(f);
+                expectedValue = attribute.applyCaseFunction(e);
+            }
             if (operation == Operation.EQUAL) {
-                if (ignoreCase && fieldValue instanceof String && expectedValue instanceof String) {
-                    return ((String) fieldValue).equalsIgnoreCase((String) expectedValue);
-                }
                 return Objects.equals(fieldValue, expectedValue);
             }
             if (operation == Operation.NOT_EQUAL) {
-                if (ignoreCase && fieldValue instanceof String && expectedValue instanceof String) {
-                    return !((String) fieldValue).equalsIgnoreCase((String) expectedValue);
-                }
                 return !Objects.equals(fieldValue, expectedValue);
             }
             if (operation == Operation.GREATER_THAN && fieldValue instanceof Comparable) {
@@ -151,10 +186,14 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
             }
             if (operation == Operation.IS_NULL) return fieldValue == null;
             if (operation == Operation.IS_NOT_NULL) return fieldValue != null;
-            if (operation == Operation.IN && expectedValue instanceof Collection<?> collection)
+            if (operation == Operation.IN && expectedValue instanceof Collection<?> collection) {
+                if (fieldValue == null) return false;
                 return collection.contains(fieldValue);
-            if (operation == Operation.NOT_IN && expectedValue instanceof Collection<?> collection)
+            }
+            if (operation == Operation.NOT_IN && expectedValue instanceof Collection<?> collection) {
+                if (fieldValue == null) return true;
                 return !collection.contains(fieldValue);
+            }
         } catch (Exception e) {
             log.warn("Failed to match: fieldValue={}, operation={}, expectedValue={}", fieldValue, operation, expectedValue, e);
         }
@@ -176,15 +215,14 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
 
     private Field findField(Class<?> clazz, String name) throws NoSuchFieldException {
         while (clazz != null) {
-            try {
-                Field field = clazz.getDeclaredField(name);
-                field.setAccessible(true);
-                return field;
-            } catch (NoSuchFieldException ignored) {
-                clazz = clazz.getSuperclass();
+            for (Field field : clazz.getDeclaredFields()) {
+                if (field.getName().equals(name)) return field;
+                val alias = field.getAnnotation(Attribute.class);
+                if (alias != null && alias.value().equals(name)) return field;
             }
+            clazz = clazz.getSuperclass();
         }
-        throw new NoSuchFieldException("Field '" + name + "' not found");
+        throw new NoSuchFieldException("Field or @Attribute '" + name + "' not found");
     }
 
     private String likeToRegex(String pattern) {
@@ -202,5 +240,41 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
         regex.insert(0, "^");
         regex.append("$");
         return regex.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<E> applyProjection(List<E> entities, DynamicQueryDefinition query) {
+        try {
+            assert query.projectionFields() != null;
+            String[] fieldNames = query.projectionFields().split("\\s*,\\s*");
+            Class<?> dtoClass = query.returnType();
+            Class<?>[] paramTypes = new Class<?>[fieldNames.length];
+            for (int i = 0; i < fieldNames.length; i++) {
+                paramTypes[i] = resolveNestedFieldType(getEntityType(), fieldNames[i]);
+            }
+            var constructor = dtoClass.getConstructor(paramTypes);
+            List<Object> projected = new ArrayList<>();
+            for (E entity : entities) {
+                Object[] values = new Object[fieldNames.length];
+                for (int i = 0; i < fieldNames.length; i++) {
+                    values[i] = getNestedFieldValue(entity, fieldNames[i]);
+                }
+                Object dto = constructor.newInstance(values);
+                projected.add(dto);
+            }
+
+            return (List<E>) projected;
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to project result to " + query.returnType().getName(), e);
+        }
+    }
+
+    private Class<?> resolveNestedFieldType(Class<?> rootClass, String path) throws NoSuchFieldException {
+        Class<?> current = rootClass;
+        for (String part : path.split("\\.")) {
+            Field field = findField(current, part);
+            current = field.getType();
+        }
+        return current;
     }
 }

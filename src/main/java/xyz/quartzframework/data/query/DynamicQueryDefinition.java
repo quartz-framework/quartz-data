@@ -8,10 +8,12 @@ import java.util.List;
 public record DynamicQueryDefinition(
     Method method,
     QueryAction action,
-    List<Condition> conditions,
+    List<QueryCondition> queryConditions,
     List<Order> orders,
     @Nullable Integer limit,
     boolean distinct,
     boolean nativeSQL,
-    @Nullable String raw
+    @Nullable String raw,
+    Class<?> returnType,
+    @Nullable String projectionFields
 ) {}

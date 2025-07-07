@@ -1,13 +1,13 @@
 package xyz.quartzframework.data.query;
 
 import lombok.val;
+import xyz.quartzframework.data.storage.StorageDefinition;
 import xyz.quartzframework.data.util.ParameterBindingUtil;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,7 +20,8 @@ public class QQLQueryParser implements QueryParser {
     }
 
     private boolean isInPattern(Query query) {
-        return query.value().matches("^(find|count|exists).*");
+        String sanitized = query.value().replaceAll("\\s+", " ").trim();
+        return sanitized.matches("^(find|count|exists).*");
     }
 
     @Override
@@ -29,9 +30,13 @@ public class QQLQueryParser implements QueryParser {
         return annotation != null ? annotation.value() : null;
     }
 
+    private String sanitizeQuery(String query) {
+        return query.replaceAll("[\\s\\r\\n]+", " ").trim();
+    }
+
     @Override
-    public DynamicQueryDefinition parse(Method method) {
-        val name = queryString(method);
+    public DynamicQueryDefinition parse(Method method, StorageDefinition storageDefinition) {
+        val name = sanitizeQuery(queryString(method));
         String lower = name.toLowerCase(Locale.ROOT).trim();
 
         QueryAction action;
@@ -55,7 +60,11 @@ public class QQLQueryParser implements QueryParser {
             query = query.replaceFirst("(?i)top\\s+\\d+", "").trim();
         }
 
-        List<Condition> conditions = new ArrayList<>();
+        if (query.toLowerCase().startsWith("by ")) {
+            query = query.substring(3).trim();
+        }
+
+        List<QueryCondition> queryConditions = new ArrayList<>();
         List<Order> orders = new ArrayList<>();
 
         String[] parts = query.split("(?i)order\\s+by", 2);
@@ -63,92 +72,139 @@ public class QQLQueryParser implements QueryParser {
         String orderPart = parts.length > 1 ? parts[1].trim() : "";
 
         if (!conditionPart.isEmpty()) {
-            Pattern condPattern = Pattern.compile(
-                    "(lower\\(\\w+\\)|upper\\(\\w+\\)|\\w+)\\s*" +
-                            "(not like|not in|is not null|is null|>=|<=|!=|<>|=|>|<|like|in)\\s*" +
-                            "(lower\\([^)]*\\)|upper\\([^)]*\\)|:\\w+|\\?\\d*|\\?|true|false|null|'[^']*')?",
-                    Pattern.CASE_INSENSITIVE
-            );
-
-            Matcher m = condPattern.matcher(conditionPart);
-            int positionalParamCounter = 0;
-
-            while (m.find()) {
-                String rawField = m.group(1);
-                String operator = m.group(2).toLowerCase();
-                String rawValue = m.group(3) != null ? m.group(3).trim() : null;
-
-                boolean ignoreCase = false;
-                String field = extractInner(rawField);
-                String value = rawValue != null ? extractInner(rawValue) : null;
-
-                String fieldFunc = extractCaseFunction(rawField);
-                String valueFunc = extractCaseFunction(rawValue);
-
-                if ((fieldFunc != null || valueFunc != null) &&
-                        Objects.equals(fieldFunc, valueFunc)) {
-                    ignoreCase = true;
-                }
-
-                Operation op = switch (operator) {
-                    case "=", "==" -> Operation.EQUAL;
-                    case "!=", "<>" -> Operation.NOT_EQUAL;
-                    case ">" -> Operation.GREATER_THAN;
-                    case ">=" -> Operation.GREATER_THAN_OR_EQUAL;
-                    case "<" -> Operation.LESS_THAN;
-                    case "<=" -> Operation.LESS_THAN_OR_EQUAL;
-                    case "like" -> Operation.LIKE;
-                    case "not like" -> Operation.NOT_LIKE;
-                    case "in" -> Operation.IN;
-                    case "not in" -> Operation.NOT_IN;
-                    case "is null" -> Operation.IS_NULL;
-                    case "is not null" -> Operation.IS_NOT_NULL;
-                    default -> throw new IllegalArgumentException("Unknown operator: " + operator);
-                };
-
-                Integer paramIndex = null;
-                Object fixedValue = null;
-                String namedParameter = null;
-
-                if (rawValue != null) {
-                    String innerRaw = extractInner(rawValue);
-                    if (innerRaw.startsWith("?")) {
-                        if (innerRaw.length() == 1) {
-                            paramIndex = positionalParamCounter++;
-                        } else {
-                            paramIndex = Integer.parseInt(innerRaw.substring(1)) - 1;
-                        }
-                    } else if (innerRaw.startsWith(":")) {
-                        namedParameter = innerRaw.substring(1);
-                    } else if (rawValue.equalsIgnoreCase("true")) {
-                        fixedValue = Boolean.TRUE;
-                    } else if (rawValue.equalsIgnoreCase("false")) {
-                        fixedValue = Boolean.FALSE;
-                    } else if (rawValue.equalsIgnoreCase("null")) {
-
-                    } else if (rawValue.startsWith("'") && rawValue.endsWith("'")) {
-                        fixedValue = rawValue.substring(1, rawValue.length() - 1);
-                    } else {
-                        throw new IllegalArgumentException("Unsupported value literal: " + rawValue);
-                    }
-                }
-                conditions.add(new Condition(field, op, fixedValue, paramIndex, namedParameter, ignoreCase));
-            }
+            queryConditions = parseWithPrecedence(conditionPart);
         }
 
         if (!orderPart.isEmpty()) {
             String[] tokens = orderPart.split(",");
             for (String token : tokens) {
                 String[] orderTokens = token.trim().split("\\s+");
-                String prop = orderTokens[0];
+                String prop = normalizeField(orderTokens[0]);
                 boolean desc = orderTokens.length > 1 && orderTokens[1].equalsIgnoreCase("desc");
                 orders.add(new Order(prop, desc));
             }
         }
 
-        val def = new DynamicQueryDefinition(method, action, conditions, orders, limit, distinct, false, null);
+        Class<?> returnType = storageDefinition.entityClass();
+        String projectionFieldsRaw = null;
+
+        Pattern returnNewPattern = Pattern.compile("(?i)\\s*returns\\s+new\\s+(\\w+(?:\\.\\w+)*?)\\s*\\(([^)]*)\\)\\s*$");
+        Matcher matcher = returnNewPattern.matcher(query);
+
+        if (matcher.find()) {
+            String className = matcher.group(1).trim();
+            projectionFieldsRaw = matcher.group(2).trim();
+
+            try {
+                returnType = Class.forName(className);
+            } catch (ClassNotFoundException e) {
+                throw new IllegalArgumentException("Could not load return class in QQL: " + className, e);
+            }
+            query = query.substring(0, matcher.start()).trim() + " " + query.substring(matcher.end()).trim();
+        }
+
+        val def = new DynamicQueryDefinition(method, action, queryConditions, orders, limit, distinct, false, null, returnType, projectionFieldsRaw);
         ParameterBindingUtil.validateNamedParameters(method, def);
         return def;
+    }
+
+    private List<QueryCondition> parseWithPrecedence(String conditionPart) {
+        List<QueryCondition> conditions = new ArrayList<>();
+        String[] tokens = conditionPart.split("(?i)\\s+(and|or)\\s+");
+        Matcher connectorMatcher = Pattern.compile("(?i)\\s+(and|or)\\s+").matcher(conditionPart);
+        List<String> connectors = new ArrayList<>();
+        while (connectorMatcher.find()) {
+            connectors.add(connectorMatcher.group(1).toLowerCase());
+        }
+
+        boolean lastWasOr = false;
+        for (int i = 0; i < tokens.length; i++) {
+            String expr = tokens[i].trim();
+            QueryCondition cond = parseSingleCondition(expr);
+            cond.setOr(lastWasOr);
+            conditions.add(cond);
+            if (i < connectors.size()) {
+                lastWasOr = connectors.get(i).equals("or");
+            }
+        }
+        return conditions;
+    }
+
+    private QueryCondition parseSingleCondition(String expr) {
+        Pattern condPattern = Pattern.compile(
+                "(lower\\([\\w.]+\\)|upper\\([\\w.]+\\)|[\\w.]+)\\s*" +
+                        "(not like|not in|is not null|is null|>=|<=|!=|<>|=|>|<|like|in)\\s*" +
+                        "(lower\\([^)]*\\)|upper\\([^)]*\\)|:\\w+|\\?\\d*|\\?|true|false|null|'[^']*')?",
+                Pattern.CASE_INSENSITIVE
+        );
+
+        Matcher m = condPattern.matcher(expr);
+        if (!m.find()) throw new IllegalArgumentException("Invalid condition expression: " + expr);
+
+        String rawCondition = m.group(0).trim();
+        String rawField = m.group(1);
+        String operator = m.group(2).toLowerCase();
+        String rawValue = m.group(3) != null ? m.group(3).trim() : null;
+
+        String fieldName = normalizeField(extractInner(rawField));
+        String fieldFunc = extractCaseFunction(rawField);
+        String valueFunc = extractCaseFunction(rawValue);
+
+        CaseFunction fieldCase = toCaseFunction(fieldFunc);
+        CaseFunction valueCase = toCaseFunction(valueFunc);
+        boolean ignoreCase = fieldCase != CaseFunction.NONE && fieldCase == valueCase;
+
+        AttributePath attribute = new AttributePath(rawField, fieldName, fieldCase);
+
+        Operation op = switch (operator) {
+            case "=", "==" -> Operation.EQUAL;
+            case "!=", "<>" -> Operation.NOT_EQUAL;
+            case ">" -> Operation.GREATER_THAN;
+            case ">=" -> Operation.GREATER_THAN_OR_EQUAL;
+            case "<" -> Operation.LESS_THAN;
+            case "<=" -> Operation.LESS_THAN_OR_EQUAL;
+            case "like" -> Operation.LIKE;
+            case "not like" -> Operation.NOT_LIKE;
+            case "in" -> Operation.IN;
+            case "not in" -> Operation.NOT_IN;
+            case "is null" -> Operation.IS_NULL;
+            case "is not null" -> Operation.IS_NOT_NULL;
+            default -> throw new IllegalArgumentException("Unknown operator: " + operator);
+        };
+
+        Integer paramIndex = null;
+        Object fixedValue = null;
+        String namedParameter = null;
+
+        if (rawValue != null) {
+            String innerRaw = extractInner(rawValue);
+            if (innerRaw.startsWith("?")) {
+                paramIndex = innerRaw.length() == 1 ? 0 : Integer.parseInt(innerRaw.substring(1)) - 1;
+            } else if (innerRaw.startsWith(":")) {
+                namedParameter = innerRaw.substring(1);
+            } else if (rawValue.equalsIgnoreCase("true")) {
+                fixedValue = Boolean.TRUE;
+            } else if (rawValue.equalsIgnoreCase("false")) {
+                fixedValue = Boolean.FALSE;
+            } else if (rawValue.startsWith("'") && rawValue.endsWith("'")) {
+                fixedValue = rawValue.substring(1, rawValue.length() - 1);
+            } else {
+                if (!rawValue.equalsIgnoreCase("null")) {
+                    throw new IllegalArgumentException("Unsupported value literal: " + rawValue);
+                }
+            }
+        }
+
+        return new QueryCondition(
+                rawCondition,
+                attribute,
+                op,
+                fixedValue,
+                paramIndex,
+                namedParameter,
+                rawValue,
+                ignoreCase
+        );
     }
 
     private String extractCaseFunction(String expr) {
@@ -161,5 +217,32 @@ public class QQLQueryParser implements QueryParser {
         if (expr == null) return null;
         Matcher m = Pattern.compile("(?i)(?:lower|upper)\\((.+)\\)").matcher(expr);
         return m.matches() ? m.group(1).trim() : expr.trim();
+    }
+
+    private CaseFunction toCaseFunction(String func) {
+        if (func == null) return CaseFunction.NONE;
+        return switch (func.toLowerCase()) {
+            case "lower" -> CaseFunction.LOWER;
+            case "upper" -> CaseFunction.UPPER;
+            default -> CaseFunction.NONE;
+        };
+    }
+
+    private String normalizeField(String name) {
+        if (name == null) return null;
+        if (name.contains(".")) return name; // nested OK
+        if (name.contains("_")) return toCamelCase(name);
+        return Character.toLowerCase(name.charAt(0)) + name.substring(1);
+    }
+
+    private String toCamelCase(String input) {
+        StringBuilder result = new StringBuilder();
+        String[] parts = input.split("_");
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i];
+            if (i == 0) result.append(part.toLowerCase());
+            else result.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1).toLowerCase());
+        }
+        return result.toString();
     }
 }

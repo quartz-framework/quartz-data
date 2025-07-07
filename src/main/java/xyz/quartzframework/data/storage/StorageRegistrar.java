@@ -26,7 +26,7 @@ public class StorageRegistrar {
                 val entity = storageFactory.resolveEntityType(storageInterface);
                 val id = storageFactory.resolveIdType(storageInterface);
                 registry.registerSingletonBeanDefinition(storageInterface, proxy);
-                getStorages().add(new StorageDefinition(storageInterface, entity, id));
+                getStorages().add(new StorageDefinition(entity, id));
                 log.debug("Registered storage interface: {}", storageInterface.getName());
             } catch (Exception e) {
                 log.error("Failed to register storage interface: {}", storageInterface.getName(), e);

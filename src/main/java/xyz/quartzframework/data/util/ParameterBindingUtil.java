@@ -1,9 +1,9 @@
 package xyz.quartzframework.data.util;
 
 import lombok.experimental.UtilityClass;
-import xyz.quartzframework.data.query.Condition;
 import xyz.quartzframework.data.query.DynamicQueryDefinition;
 import xyz.quartzframework.data.query.ParameterBindingException;
+import xyz.quartzframework.data.query.QueryCondition;
 import xyz.quartzframework.data.query.QueryParameter;
 
 import java.lang.reflect.Method;
@@ -23,8 +23,8 @@ public final class ParameterBindingUtil {
             }
         }
 
-        for (Condition condition : definition.conditions()) {
-            String named = condition.namedParameter();
+        for (QueryCondition queryCondition : definition.queryConditions()) {
+            String named = queryCondition.getNamedParameter();
             if (named != null && !declared.contains(named)) {
                 throw new ParameterBindingException("Missing @QueryParameter(\"" + named + "\") for method: " + method.getName());
             }

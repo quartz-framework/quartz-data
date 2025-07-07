@@ -1,16 +1,12 @@
-package xyz.quartzframework.data.query;
+package xyz.quartzframework.data.entity;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-@Target(ElementType.METHOD)
+@Target(ElementType.FIELD)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface Query {
-
-    String value();
-
-    boolean nativeQuery() default false;
+public @interface Identity {
 
 }

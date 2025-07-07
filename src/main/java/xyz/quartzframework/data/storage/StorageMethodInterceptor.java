@@ -15,13 +15,15 @@ import java.util.*;
 import java.util.stream.Stream;
 
 @RequiredArgsConstructor
-public class StorageMethodInterceptor<E> implements MethodInterceptor {
+public class StorageMethodInterceptor<E, ID> implements MethodInterceptor {
 
     private final QueryParser queryParser;
 
     private final QueryExecutor<E> executor;
 
     private final Class<E> entityType;
+
+    private final Class<ID> idType;
 
     @Override
     public Object invoke(MethodInvocation invocation) throws Throwable {
@@ -36,14 +38,14 @@ public class StorageMethodInterceptor<E> implements MethodInterceptor {
             return invocation.proceed();
         }
         if (!isDynamicMethod(method)) return invocation.proceed();
-        DynamicQueryDefinition query = queryParser.parse(method);
+        DynamicQueryDefinition query = queryParser.parse(method, new StorageDefinition(entityType, idType));
         String queryString = queryParser.queryString(method);
         validateReturnType(method, query);
         Object[] args = invocation.getArguments();
         long dynamicConditions = query
-                .conditions()
+                .queryConditions()
                 .stream()
-                .filter(c -> c.fixedValue() == null && c.paramIndex() != null)
+                .filter(c -> c.getFixedValue() == null && c.getParamIndex() != null)
                 .count();
         if (args.length < dynamicConditions) {
             throw new IllegalStateException("Expected " + dynamicConditions + " arguments for query '" + queryString + "', but got " + args.length);

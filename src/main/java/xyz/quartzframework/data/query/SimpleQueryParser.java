@@ -1,5 +1,7 @@
 package xyz.quartzframework.data.query;
 
+import xyz.quartzframework.data.storage.StorageDefinition;
+
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -16,10 +18,10 @@ public class SimpleQueryParser implements QueryParser {
     }
 
     @Override
-    public DynamicQueryDefinition parse(Method method) {
+    public DynamicQueryDefinition parse(Method method, StorageDefinition storageDefinition) {
         for (QueryParser parser : parsers) {
             if (parser.supports(method)) {
-                return parser.parse(method);
+                return parser.parse(method, storageDefinition);
             }
         }
         throw new IllegalStateException("No QueryParser could handle method: " + method.getName());
