@@ -2,10 +2,10 @@ package xyz.quartzframework.data.storage;
 
 import xyz.quartzframework.data.query.QueryExecutor;
 
-public interface StorageProvider<E, ID> {
+public interface StorageProvider {
 
-    SimpleStorage<E, ID> create(Class<E> entity, Class<ID> id);
+    <E, ID> SimpleStorage<E, ID> create(Class<E> entity, Class<ID> id);
 
-    QueryExecutor<E> getQueryExecutor(SimpleStorage<E, ID> storage);
+    <E, ID> QueryExecutor<E> getQueryExecutor(SimpleStorage<E, ID> storage);
 
 }

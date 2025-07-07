@@ -44,11 +44,10 @@ public class DefaultStorageFactory implements StorageFactory {
         Class<E> entityType = (Class<E>) types[0];
         Class<ID> idType = (Class<ID>) types[1];
         Object bean = beanFactory.getBean(implClass);
-        if (bean instanceof StorageProvider<?, ?> provider) {
-            val p = (StorageProvider<E, ID>) provider;
-            val target = p.create(entityType, idType);
+        if (bean instanceof StorageProvider provider) {
+            val target = provider.create(entityType, idType);
             val interceptors = Arrays.stream(annotation.interceptors()).map(beanFactory::getBean).toArray(MethodInterceptor[]::new);
-            val proxyFactory = ProxyFactoryUtil.createProxyFactory(queryParser, target, entityType, storageInterface, p.getQueryExecutor(target), interceptors);
+            val proxyFactory = ProxyFactoryUtil.createProxyFactory(queryParser, target, entityType, storageInterface, provider.getQueryExecutor(target), interceptors);
             return (SimpleStorage<E, ID>) proxyFactory.getProxy(classLoader);
         }
         throw new IllegalStateException("Provided class " + implClass.getName() + " is not a StorageProvider");

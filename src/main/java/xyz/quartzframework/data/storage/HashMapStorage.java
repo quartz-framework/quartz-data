@@ -1,5 +1,6 @@
 package xyz.quartzframework.data.storage;
 
+import lombok.Getter;
 import xyz.quartzframework.data.page.Page;
 import xyz.quartzframework.data.page.Pagination;
 import xyz.quartzframework.data.page.Sort;
@@ -16,10 +17,15 @@ public class HashMapStorage<E, ID> implements InMemoryStorage<E, ID> {
 
     private final Map<ID, E> storage = new ConcurrentHashMap<>();
 
+    @Getter
+    private final Class<E> entityClass;
+
+    @Getter
     private final Class<ID> idClass;
 
-    public HashMapStorage(Class<ID> idClass) {
+    public HashMapStorage(Class<E> entityClass, Class<ID> idClass) {
         this.idClass = idClass;
+        this.entityClass = entityClass;
     }
 
     @Override

@@ -9,7 +9,7 @@ import java.lang.reflect.Field;
 @UtilityClass
 public class IdentityUtil {
 
-    private <T> Field findIdentityField(Class<T> modelClass) {
+    public <T> Field findIdentityField(Class<T> modelClass) {
         for (Field field : modelClass.getDeclaredFields()) {
             if (field.isAnnotationPresent(Identity.class) || field.isAnnotationPresent(Id.class)) {
                 field.setAccessible(true);

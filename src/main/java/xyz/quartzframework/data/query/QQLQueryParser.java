@@ -1,19 +1,16 @@
 package xyz.quartzframework.data.query;
 
 import lombok.val;
-import xyz.quartzframework.core.bean.annotation.Injectable;
-import xyz.quartzframework.core.bean.annotation.NamedInstance;
 import xyz.quartzframework.data.util.ParameterBindingUtil;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-@Injectable
-@NamedInstance("qqlQueryParser")
 public class QQLQueryParser implements QueryParser {
 
     @Override
@@ -29,49 +26,69 @@ public class QQLQueryParser implements QueryParser {
     @Override
     public String queryString(Method method) {
         val annotation = method.getAnnotation(Query.class);
-        if (annotation == null) {
-            return null;
-        }
-        return annotation.value();
+        return annotation != null ? annotation.value() : null;
     }
 
     @Override
     public DynamicQueryDefinition parse(Method method) {
         val name = queryString(method);
         String lower = name.toLowerCase(Locale.ROOT).trim();
+
         QueryAction action;
         if (lower.startsWith("find")) action = QueryAction.FIND;
         else if (lower.startsWith("count")) action = QueryAction.COUNT;
         else if (lower.startsWith("exists")) action = QueryAction.EXISTS;
         else throw new IllegalArgumentException("Unknown query action: " + name);
+
         String query = name.substring(action.name().length()).trim();
         boolean distinct = false;
         Integer limit = null;
+
         if (query.toLowerCase().startsWith("distinct")) {
             distinct = true;
             query = query.substring("distinct".length()).trim();
         }
+
         Matcher topMatch = Pattern.compile("top\\s+(\\d+)", Pattern.CASE_INSENSITIVE).matcher(query);
         if (topMatch.find()) {
             limit = Integer.parseInt(topMatch.group(1));
             query = query.replaceFirst("(?i)top\\s+\\d+", "").trim();
         }
+
         List<Condition> conditions = new ArrayList<>();
         List<Order> orders = new ArrayList<>();
+
         String[] parts = query.split("(?i)order\\s+by", 2);
         String conditionPart = parts[0].replaceFirst("(?i)^where", "").trim();
         String orderPart = parts.length > 1 ? parts[1].trim() : "";
+
         if (!conditionPart.isEmpty()) {
             Pattern condPattern = Pattern.compile(
-                    "(\\w+)\\s*(not like|not in|is not null|is null|>=|<=|!=|<>|=|>|<|like|in)\\s*(\\?\\d*|true|false|null|'[^']*')?",
+                    "(lower\\(\\w+\\)|upper\\(\\w+\\)|\\w+)\\s*" +
+                            "(not like|not in|is not null|is null|>=|<=|!=|<>|=|>|<|like|in)\\s*" +
+                            "(lower\\([^)]*\\)|upper\\([^)]*\\)|:\\w+|\\?\\d*|\\?|true|false|null|'[^']*')?",
                     Pattern.CASE_INSENSITIVE
             );
+
             Matcher m = condPattern.matcher(conditionPart);
             int positionalParamCounter = 0;
+
             while (m.find()) {
-                String field = m.group(1);
+                String rawField = m.group(1);
                 String operator = m.group(2).toLowerCase();
-                String value = m.group(3) != null ? m.group(3).trim() : null;
+                String rawValue = m.group(3) != null ? m.group(3).trim() : null;
+
+                boolean ignoreCase = false;
+                String field = extractInner(rawField);
+                String value = rawValue != null ? extractInner(rawValue) : null;
+
+                String fieldFunc = extractCaseFunction(rawField);
+                String valueFunc = extractCaseFunction(rawValue);
+
+                if ((fieldFunc != null || valueFunc != null) &&
+                        Objects.equals(fieldFunc, valueFunc)) {
+                    ignoreCase = true;
+                }
 
                 Operation op = switch (operator) {
                     case "=", "==" -> Operation.EQUAL;
@@ -92,29 +109,33 @@ public class QQLQueryParser implements QueryParser {
                 Integer paramIndex = null;
                 Object fixedValue = null;
                 String namedParameter = null;
-                if (value != null) {
-                    if (value.startsWith("?")) {
-                        if (value.length() == 1) {
+
+                if (rawValue != null) {
+                    String innerRaw = extractInner(rawValue);
+                    if (innerRaw.startsWith("?")) {
+                        if (innerRaw.length() == 1) {
                             paramIndex = positionalParamCounter++;
-                        } else if (value.startsWith(":")) {
-                            namedParameter = value.substring(1);
                         } else {
-                            paramIndex = Integer.parseInt(value.substring(1)) - 1;
+                            paramIndex = Integer.parseInt(innerRaw.substring(1)) - 1;
                         }
-                    } else if (value.equalsIgnoreCase("true")) {
+                    } else if (innerRaw.startsWith(":")) {
+                        namedParameter = innerRaw.substring(1);
+                    } else if (rawValue.equalsIgnoreCase("true")) {
                         fixedValue = Boolean.TRUE;
-                    } else if (value.equalsIgnoreCase("false")) {
+                    } else if (rawValue.equalsIgnoreCase("false")) {
                         fixedValue = Boolean.FALSE;
-                    } else if (value.equalsIgnoreCase("null")) {
-                    } else if (value.startsWith("'") && value.endsWith("'")) {
-                        fixedValue = value.substring(1, value.length() - 1);
+                    } else if (rawValue.equalsIgnoreCase("null")) {
+
+                    } else if (rawValue.startsWith("'") && rawValue.endsWith("'")) {
+                        fixedValue = rawValue.substring(1, rawValue.length() - 1);
                     } else {
-                        throw new IllegalArgumentException("Unsupported value literal: " + value);
+                        throw new IllegalArgumentException("Unsupported value literal: " + rawValue);
                     }
                 }
-                conditions.add(new Condition(field, op, fixedValue, paramIndex, namedParameter));
+                conditions.add(new Condition(field, op, fixedValue, paramIndex, namedParameter, ignoreCase));
             }
         }
+
         if (!orderPart.isEmpty()) {
             String[] tokens = orderPart.split(",");
             for (String token : tokens) {
@@ -124,8 +145,21 @@ public class QQLQueryParser implements QueryParser {
                 orders.add(new Order(prop, desc));
             }
         }
+
         val def = new DynamicQueryDefinition(method, action, conditions, orders, limit, distinct, false, null);
         ParameterBindingUtil.validateNamedParameters(method, def);
         return def;
+    }
+
+    private String extractCaseFunction(String expr) {
+        if (expr == null) return null;
+        Matcher m = Pattern.compile("(?i)(lower|upper)\\(.*\\)").matcher(expr);
+        return m.matches() ? m.group(1).toLowerCase() : null;
+    }
+
+    private String extractInner(String expr) {
+        if (expr == null) return null;
+        Matcher m = Pattern.compile("(?i)(?:lower|upper)\\((.+)\\)").matcher(expr);
+        return m.matches() ? m.group(1).trim() : expr.trim();
     }
 }

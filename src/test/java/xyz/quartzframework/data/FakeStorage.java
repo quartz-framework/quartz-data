@@ -107,4 +107,18 @@ public interface FakeStorage extends InMemoryStorage<FakeEntity, UUID> {
     @Query("find where createdAt >= :from and createdAt <= :to")
     List<FakeEntity> brokenQuery(@QueryParameter("from") Instant from);
 
+    @Query("find where lower(name) = lower(?1)")
+    List<FakeEntity> findByNameIgnoreCase(String name);
+
+    @Query("find where upper(name) = upper(?1)")
+    List<FakeEntity> findByNameIgnoreCaseUpper(String name);
+
+    @Query("find where lower(name) like lower(?1)")
+    List<FakeEntity> searchByNameIgnoreCase(String pattern);
+
+    @Query("find where upper(name) like upper(?1)")
+    List<FakeEntity> searchByNameIgnoreCaseUpper(String pattern);
+
+    @Query("exists where upper(name) = upper(:name)")
+    boolean existsByNameIgnoreCase(@QueryParameter("name") String name);
 }
