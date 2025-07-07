@@ -2,7 +2,6 @@ package xyz.quartzframework.data;
 
 import lombok.RequiredArgsConstructor;
 import lombok.val;
-import xyz.quartzframework.core.bean.annotation.Preferred;
 import xyz.quartzframework.core.bean.annotation.Priority;
 import xyz.quartzframework.core.bean.annotation.Provide;
 import xyz.quartzframework.core.bean.factory.PluginBeanFactory;
@@ -15,12 +14,11 @@ import xyz.quartzframework.data.annotation.DiscoverStorages;
 import xyz.quartzframework.data.entity.EntityDiscovery;
 import xyz.quartzframework.data.entity.EntityRegistrar;
 import xyz.quartzframework.data.query.CompositeQueryParser;
-import xyz.quartzframework.data.query.QueryParser;
-import xyz.quartzframework.data.storage.DefaultStorageFactory;
-import xyz.quartzframework.data.storage.StorageDiscovery;
-import xyz.quartzframework.data.storage.StorageFactory;
-import xyz.quartzframework.data.storage.StorageRegistrar;
+import xyz.quartzframework.data.query.MethodQueryParser;
+import xyz.quartzframework.data.query.QQLQueryParser;
+import xyz.quartzframework.data.storage.*;
 
+import javax.annotation.PostConstruct;
 import java.net.URLClassLoader;
 
 @Configurer(force = true)
@@ -33,12 +31,12 @@ public class QuartzDataConfigurer {
 
     private final PluginBeanDefinitionRegistry pluginBeanDefinitionRegistry;
 
-    @Provide
-    @Preferred
-    @Priority(0)
-    @ActivateWhenBeanMissing(QueryParser.class)
-    QueryParser queryParser() {
-        return new CompositeQueryParser(pluginBeanFactory);
+    private final CompositeQueryParser compositeQueryParser;
+
+    @PostConstruct
+    public void onConstruct() {
+        compositeQueryParser.register(new QQLQueryParser());
+        compositeQueryParser.register(new MethodQueryParser());
     }
 
     @Provide
@@ -54,14 +52,14 @@ public class QuartzDataConfigurer {
     @Provide
     @Priority(2)
     @ActivateWhenBeanMissing(EntityRegistrar.class)
-    EntityRegistrar entityRegistrar(StorageFactory storageFactory, EntityDiscovery entityDiscovery) {
-        return new EntityRegistrar(entityDiscovery, storageFactory);
+    EntityRegistrar entityRegistrar(EntityDiscovery entityDiscovery) {
+        return new EntityRegistrar(entityDiscovery);
     }
 
     @Provide
     @Priority(3)
     @ActivateWhenBeanMissing(StorageFactory.class)
-    StorageFactory storageFactory(QueryParser queryParser, URLClassLoader classLoader) {
+    StorageFactory storageFactory(CompositeQueryParser queryParser, URLClassLoader classLoader) {
         return new DefaultStorageFactory(queryParser, classLoader, pluginBeanFactory);
     }
 
@@ -81,4 +79,10 @@ public class QuartzDataConfigurer {
     StorageRegistrar storageRegistrar(StorageFactory storageFactory, StorageDiscovery storageDiscovery) {
         return new StorageRegistrar(pluginBeanDefinitionRegistry, storageDiscovery, storageFactory);
     }
+
+    @Provide
+    InMemoryStorageProvider inMemoryStorageProvider() {
+        return new InMemoryStorageProvider();
+    }
+
 }

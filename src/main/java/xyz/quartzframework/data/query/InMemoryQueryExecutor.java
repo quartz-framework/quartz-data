@@ -44,7 +44,7 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
             result = result.stream().filter(entity -> {
                 try {
                     Object fieldValue = getNestedFieldValue(entity, condition.property());
-                    return match(fieldValue, condition.operation(), finalValue);
+                    return match(fieldValue, condition.operation(), finalValue, condition);
                 } catch (Exception e) {
                     log.warn("Failed to evaluate condition on entity: {}", entity, e);
                     return false;
@@ -103,10 +103,21 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
         return !find(query, args).isEmpty();
     }
 
-    private boolean match(Object fieldValue, Operation operation, Object expectedValue) {
+    private boolean match(Object fieldValue, Operation operation, Object expectedValue, Condition condition) {
         try {
-            if (operation == Operation.EQUAL) return Objects.equals(fieldValue, expectedValue);
-            if (operation == Operation.NOT_EQUAL) return !Objects.equals(fieldValue, expectedValue);
+            boolean ignoreCase = condition.ignoreCase();
+            if (operation == Operation.EQUAL) {
+                if (ignoreCase && fieldValue instanceof String && expectedValue instanceof String) {
+                    return ((String) fieldValue).equalsIgnoreCase((String) expectedValue);
+                }
+                return Objects.equals(fieldValue, expectedValue);
+            }
+            if (operation == Operation.NOT_EQUAL) {
+                if (ignoreCase && fieldValue instanceof String && expectedValue instanceof String) {
+                    return !((String) fieldValue).equalsIgnoreCase((String) expectedValue);
+                }
+                return !Objects.equals(fieldValue, expectedValue);
+            }
             if (operation == Operation.GREATER_THAN && fieldValue instanceof Comparable) {
                 assert expectedValue != null;
                 return ((Comparable<Object>) fieldValue).compareTo(expectedValue) > 0;
@@ -126,10 +137,15 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
                     && expectedValue instanceof String pattern) {
                 boolean matches;
                 if (!pattern.contains("%") && !pattern.contains("_")) {
-                    matches = str.contains(pattern);
+                    matches = ignoreCase
+                            ? str.toLowerCase().contains(pattern.toLowerCase())
+                            : str.contains(pattern);
                 } else {
                     String regex = likeToRegex(pattern);
-                    matches = Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(str).matches();
+                    Pattern p = ignoreCase
+                            ? Pattern.compile(regex, Pattern.CASE_INSENSITIVE)
+                            : Pattern.compile(regex);
+                    matches = p.matcher(str).matches();
                 }
                 return (operation == Operation.LIKE) == matches;
             }

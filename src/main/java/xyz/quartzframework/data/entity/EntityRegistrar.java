@@ -4,7 +4,6 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
-import xyz.quartzframework.data.storage.StorageFactory;
 import xyz.quartzframework.data.util.IdentityUtil;
 
 import java.util.ArrayList;
@@ -17,12 +16,11 @@ public class EntityRegistrar {
     @Getter
     private final List<EntityDefinition> entities = new ArrayList<>();
 
-    public EntityRegistrar(EntityDiscovery entityDiscovery,
-                           StorageFactory storageFactory) {
+    public EntityRegistrar(EntityDiscovery entityDiscovery) {
         val entities = entityDiscovery.discover();
         for (Class<?> entity : entities) {
             try {
-                val idType = storageFactory.resolveIdType(entity);
+                val idType = IdentityUtil.findIdentityField(entity).getType();
                 getEntities().add(new EntityDefinition(entity, idType, IdentityUtil.findIdentityField(entity), entity.getName(), entity.getSimpleName()));
                 log.debug("Registered entity: {}", entity.getName());
             } catch (Exception e) {

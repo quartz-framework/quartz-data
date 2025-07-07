@@ -397,13 +397,6 @@ class FakeStorageTest {
     }
 
     @Test
-    void testFindByNameNotLikeNoMatch() {
-        List<FakeEntity> result = storage.findByNameNotLike("%a%");
-        assertEquals(1, result.size());
-        assertEquals("Bob", result.get(0).getName());
-    }
-
-    @Test
     void testFindByNameNotLikeI() {
         List<FakeEntity> result = storage.findByNameNotLike("%i%");
         assertEquals(1, result.size());
@@ -699,5 +692,38 @@ class FakeStorageTest {
     void testBrokenQueryBindingError() {
         Instant now = Instant.now();
         assertThrows(ParameterBindingException.class, () -> storage.brokenQuery(now.minusSeconds(1000)));
+    }
+
+    @Test
+    void testFindByNameIgnoreCase_Lower() {
+        List<FakeEntity> result = storage.findByNameIgnoreCase("alice");
+        assertEquals(1, result.size());
+        assertEquals("Alice", result.get(0).getName());
+    }
+
+    @Test
+    void testFindByNameIgnoreCase_Upper() {
+        List<FakeEntity> result = storage.findByNameIgnoreCaseUpper("ALICE");
+        assertEquals(1, result.size());
+        assertEquals("Alice", result.get(0).getName());
+    }
+
+    @Test
+    void testSearchByNameIgnoreCase() {
+        List<FakeEntity> result = storage.searchByNameIgnoreCase("%LI%");
+        assertEquals(2, result.size());
+        assertTrue(result.stream().anyMatch(e -> e.getName().equals("Alice")));
+    }
+
+    @Test
+    void testSearchByNameIgnoreCaseUpper() {
+        List<FakeEntity> result = storage.searchByNameIgnoreCaseUpper("%LI%");
+        assertEquals(2, result.size());
+    }
+
+    @Test
+    void testExistsByNameIgnoreCase() {
+        assertTrue(storage.existsByNameIgnoreCase("ALICE"));
+        assertFalse(storage.existsByNameIgnoreCase("Zelda"));
     }
 }

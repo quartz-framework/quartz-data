@@ -1,18 +1,32 @@
 package xyz.quartzframework.data.query;
 
 import lombok.RequiredArgsConstructor;
-import xyz.quartzframework.core.bean.factory.PluginBeanFactory;
+import lombok.extern.slf4j.Slf4j;
 
+import javax.annotation.PreDestroy;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
 
+@Slf4j
 @RequiredArgsConstructor
 public class CompositeQueryParser implements QueryParser {
 
-    private final PluginBeanFactory beanFactory;
+    private final List<QueryParser> parsers = new ArrayList<>();
+
+    public void register(QueryParser parser) {
+        parsers.add(parser);
+        log.debug("Registered query parser {}", parser.getClass().getSimpleName());
+    }
+
+    @PreDestroy
+    public void destroy() {
+        parsers.clear();
+    }
 
     @Override
     public DynamicQueryDefinition parse(Method method) {
-        for (QueryParser parser : beanFactory.getBeansOfType(QueryParser.class).values()) {
+        for (QueryParser parser : parsers) {
             if (parser.getClass().equals(CompositeQueryParser.class)) {
                 continue;
             }
@@ -30,7 +44,7 @@ public class CompositeQueryParser implements QueryParser {
 
     @Override
     public String queryString(Method method) {
-        for (QueryParser parser : beanFactory.getBeansOfType(QueryParser.class).values()) {
+        for (QueryParser parser : parsers) {
             if (parser.supports(method)) {
                 return parser.queryString(method);
             }

@@ -1,8 +1,6 @@
 package xyz.quartzframework.data.query;
 
 import lombok.val;
-import xyz.quartzframework.core.bean.annotation.Injectable;
-import xyz.quartzframework.core.bean.annotation.NamedInstance;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -12,8 +10,6 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-@Injectable
-@NamedInstance("methodQueryParser")
 public class MethodQueryParser implements QueryParser {
 
     @Override
@@ -104,14 +100,19 @@ public class MethodQueryParser implements QueryParser {
     private List<Condition> parseConditions(String part) {
         List<Condition> conditions = new ArrayList<>();
         String[] tokens = part.split("And");
-        for (String token : tokens) {
-            Condition condition = parseConditionToken(token);
+        for (int i = 0; i < tokens.length; i++) {
+            Condition condition = parseConditionToken(tokens[i], i);
             conditions.add(condition);
         }
         return conditions;
     }
 
-    private Condition parseConditionToken(String token) {
+    private Condition parseConditionToken(String token, int index) {
+        boolean ignoreCase = false;
+        if (token.endsWith("IgnoreCase")) {
+            token = token.substring(0, token.length() - "IgnoreCase".length());
+            ignoreCase = true;
+        }
         for (String suffix : suffixAlias
                 .keySet()
                 .stream()
@@ -126,10 +127,10 @@ public class MethodQueryParser implements QueryParser {
                     case "IsNull", "IsNotNull" -> Boolean.TRUE;
                     default -> null;
                 };
-                return new Condition(lowerFirst(prop), op, fixedValue);
+                return new Condition(lowerFirst(prop), op, fixedValue, index, ignoreCase);
             }
         }
-        return new Condition(lowerFirst(token), Operation.EQUAL, null);
+        return new Condition(lowerFirst(token), Operation.EQUAL, null, index, ignoreCase);
     }
 
     private List<Order> parseOrderPart(String orderPart) {

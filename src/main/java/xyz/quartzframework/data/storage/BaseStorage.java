@@ -21,4 +21,8 @@ public interface BaseStorage<E, ID> {
 
     void delete(Iterable<E> entities);
 
+    Class<E> getEntityClass();
+
+    Class<ID> getIdClass();
+
 }
