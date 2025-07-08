@@ -1,4 +1,4 @@
-package xyz.quartzframework.data.annotation;
+package xyz.quartzframework.data.entity;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -7,6 +7,6 @@ import java.lang.annotation.Target;
 
 @Target(ElementType.FIELD)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface Identity {
-
+public @interface Attribute {
+    String value();
 }

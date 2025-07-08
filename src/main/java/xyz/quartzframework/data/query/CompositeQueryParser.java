@@ -2,6 +2,7 @@ package xyz.quartzframework.data.query;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import xyz.quartzframework.data.storage.StorageDefinition;
 
 import javax.annotation.PreDestroy;
 import java.lang.reflect.Method;
@@ -25,13 +26,13 @@ public class CompositeQueryParser implements QueryParser {
     }
 
     @Override
-    public DynamicQueryDefinition parse(Method method) {
+    public DynamicQueryDefinition parse(Method method, StorageDefinition storageDefinition) {
         for (QueryParser parser : parsers) {
             if (parser.getClass().equals(CompositeQueryParser.class)) {
                 continue;
             }
             if (parser.supports(method)) {
-                return parser.parse(method);
+                return parser.parse(method, storageDefinition);
             }
         }
         throw new IllegalStateException("No QueryParser could handle method: " + method.getName());

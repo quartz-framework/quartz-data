@@ -7,7 +7,6 @@ import xyz.quartzframework.core.context.AbstractQuartzContext;
 import xyz.quartzframework.core.util.ClassUtil;
 import xyz.quartzframework.core.util.ReflectionUtil;
 import xyz.quartzframework.data.annotation.DiscoverEntities;
-import xyz.quartzframework.data.annotation.Identity;
 
 import java.util.*;
 

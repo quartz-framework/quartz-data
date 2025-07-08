@@ -2,7 +2,7 @@ package xyz.quartzframework.data.util;
 
 import jakarta.persistence.Id;
 import lombok.experimental.UtilityClass;
-import xyz.quartzframework.data.annotation.Identity;
+import xyz.quartzframework.data.entity.Identity;
 
 import java.lang.reflect.Field;
 

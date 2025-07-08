@@ -121,4 +121,16 @@ public interface FakeStorage extends InMemoryStorage<FakeEntity, UUID> {
 
     @Query("exists where upper(name) = upper(:name)")
     boolean existsByNameIgnoreCase(@QueryParameter("name") String name);
+
+    @Query("exists where upper(name) = :name")
+    boolean existsByNameUpper(@QueryParameter("name") String name);
+
+    @Query("find where active = true " +
+            "returns new xyz.quartzframework.data.FakeEntityDTO(id)")
+    List<FakeEntityDTO> findActiveAsDto();
+
+    @Query("find top 1 where score < ?1 and active = true order by createdAt desc " +
+            "returns new xyz.quartzframework.data.FakeEntityDTO(id)")
+    Optional<FakeEntityDTO> findRecentLowScorerAsDto(int maxScore);
+
 }

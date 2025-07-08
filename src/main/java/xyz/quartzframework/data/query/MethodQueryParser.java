@@ -1,7 +1,10 @@
 package xyz.quartzframework.data.query;
 
 import lombok.val;
+import xyz.quartzframework.data.entity.Attribute;
+import xyz.quartzframework.data.storage.StorageDefinition;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -46,7 +49,7 @@ public class MethodQueryParser implements QueryParser {
     );
 
     @Override
-    public DynamicQueryDefinition parse(Method method) {
+    public DynamicQueryDefinition parse(Method method, StorageDefinition storageDefinition) {
         val name = queryString(method);
         QueryAction action = extractAction(name);
         String stripped = stripPrefix(name, action);
@@ -55,14 +58,14 @@ public class MethodQueryParser implements QueryParser {
             distinct = true;
             stripped = stripped.substring("Distinct".length());
         }
-        List<Condition> conditions = new ArrayList<>();
+        List<QueryCondition> queryConditions = new ArrayList<>();
         List<Order> orders = new ArrayList<>();
         Integer limit = null;
         String conditionPart = stripped;
         if (stripped.contains("OrderBy")) {
             String[] split = stripped.split("OrderBy", 2);
             conditionPart = split[0];
-            orders = parseOrderPart(split[1]);
+            orders = parseOrderPart(split[1], storageDefinition);
         }
         if (conditionPart.startsWith("Top")) {
             Matcher m = Pattern.compile("Top(\\d+)(.*)").matcher(conditionPart);
@@ -78,12 +81,12 @@ public class MethodQueryParser implements QueryParser {
             conditionPart = conditionPart.substring(2);
         }
         if (!conditionPart.isEmpty()) {
-            conditions = parseConditions(conditionPart);
+            queryConditions = parseConditions(conditionPart, storageDefinition);
         }
         if (stripPrefix(name, action).isEmpty()) {
-            return new DynamicQueryDefinition(method, action, List.of(), List.of(), null, false, false, null);
+            return new DynamicQueryDefinition(method, action, List.of(), List.of(), null, false, false, null, storageDefinition.entityClass(), null);
         }
-        return new DynamicQueryDefinition(method, action, conditions, orders, limit, distinct, false, null);
+        return new DynamicQueryDefinition(method, action, queryConditions, orders, limit, distinct, false, null, storageDefinition.entityClass(), null);
     }
 
     private QueryAction extractAction(String methodName) {
@@ -97,21 +100,35 @@ public class MethodQueryParser implements QueryParser {
         return methodName.substring(action.name().length()).replaceFirst("^By", "By");
     }
 
-    private List<Condition> parseConditions(String part) {
-        List<Condition> conditions = new ArrayList<>();
-        String[] tokens = part.split("And");
-        for (int i = 0; i < tokens.length; i++) {
-            Condition condition = parseConditionToken(tokens[i], i);
-            conditions.add(condition);
+    private List<QueryCondition> parseConditions(String part, StorageDefinition storageDefinition) {
+        List<QueryCondition> queryConditions = new ArrayList<>();
+        String[] orBlocks = part.split("Or");
+        int paramIndex = 0;
+
+        for (int i = 0; i < orBlocks.length; i++) {
+            String orBlock = orBlocks[i];
+            String[] andTokens = orBlock.split("And");
+
+            for (String token : andTokens) {
+                QueryCondition condition = parseConditionToken(token, paramIndex, storageDefinition);
+                if (i > 0) condition.setOr(true);
+                queryConditions.add(condition);
+                paramIndex++;
+            }
         }
-        return conditions;
+
+        return queryConditions;
     }
 
-    private Condition parseConditionToken(String token, int index) {
+    private QueryCondition parseConditionToken(String token, int index, StorageDefinition storageDefinition) {
         boolean ignoreCase = false;
+        CaseFunction caseFunction = CaseFunction.NONE;
+        String rawProperty = token;
+        String rawCondition = token;
         if (token.endsWith("IgnoreCase")) {
             token = token.substring(0, token.length() - "IgnoreCase".length());
             ignoreCase = true;
+            caseFunction = CaseFunction.LOWER;
         }
         for (String suffix : suffixAlias
                 .keySet()
@@ -127,22 +144,78 @@ public class MethodQueryParser implements QueryParser {
                     case "IsNull", "IsNotNull" -> Boolean.TRUE;
                     default -> null;
                 };
-                return new Condition(lowerFirst(prop), op, fixedValue, index, ignoreCase);
+                String property = toNestedFieldPath(prop, storageDefinition.entityClass());
+                return new QueryCondition(
+                        rawCondition,
+                        new AttributePath(rawProperty, property, caseFunction),
+                        op,
+                        fixedValue,
+                        index,
+                        null,
+                        null,
+                        ignoreCase
+                );
             }
         }
-        return new Condition(lowerFirst(token), Operation.EQUAL, null, index, ignoreCase);
+        String property = toNestedFieldPath(token, storageDefinition.entityClass());
+        return new QueryCondition(
+                rawCondition,
+                new AttributePath(rawProperty, property, caseFunction),
+                Operation.EQUAL,
+                null,
+                index,
+                null,
+                null,
+                ignoreCase
+        );
     }
 
-    private List<Order> parseOrderPart(String orderPart) {
+    private List<Order> parseOrderPart(String orderPart, StorageDefinition storageDefinition) {
         List<Order> orders = new ArrayList<>();
         Pattern pattern = Pattern.compile("([A-Z][a-zA-Z0-9]*)(Asc|Desc)$");
         Matcher matcher = pattern.matcher(orderPart);
         while (matcher.find()) {
             String prop = matcher.group(1);
             String direction = matcher.group(2);
-            orders.add(new Order(lowerFirst(prop), "Desc".equalsIgnoreCase(direction)));
+            orders.add(new Order(toNestedFieldPath(prop, storageDefinition.entityClass()), "Desc".equalsIgnoreCase(direction)));
         }
         return orders;
+    }
+
+    private String toNestedFieldPath(String token, Class<?> rootClass) {
+        StringBuilder resolvedPath = new StringBuilder();
+        Class<?> current = rootClass;
+
+        Matcher matcher = Pattern.compile("[A-Z][a-z0-9]*").matcher(token);
+        while (matcher.find()) {
+            String segment = matcher.group();
+            String fieldMatch = null;
+            Field matchedField = null;
+            for (Field field : current.getDeclaredFields()) {
+                if (field.getName().equalsIgnoreCase(segment)) {
+                    fieldMatch = field.getName();
+                    matchedField = field;
+                    break;
+                }
+                Attribute attr = field.getAnnotation(Attribute.class);
+                if (attr != null && attr.value().equalsIgnoreCase(segment)) {
+                    fieldMatch = field.getName();
+                    matchedField = field;
+                    break;
+                }
+            }
+            if (fieldMatch == null) {
+                return lowerFirst(token);
+            }
+            if (!resolvedPath.isEmpty()) {
+                resolvedPath.append(".");
+            }
+            resolvedPath.append(fieldMatch);
+
+            current = matchedField.getType();
+        }
+
+        return resolvedPath.toString();
     }
 
     private String lowerFirst(String str) {
