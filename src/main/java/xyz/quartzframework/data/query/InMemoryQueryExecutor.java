@@ -29,7 +29,7 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
     }
 
     @Override
-    public List<E> find(DynamicQueryDefinition query, Object[] args) {
+    public <R> List<R> find(DynamicQueryDefinition query, Object[] args) {
         List<E> result = new ArrayList<>(source);
 
         List<List<Predicate<E>>> orGroups = new ArrayList<>();
@@ -116,16 +116,16 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
             result = applyProjection(result, query);
         }
 
-        return result;
+        return (List<R>) result;
     }
 
     @Override
-    public Page<E> find(DynamicQueryDefinition query, Object[] args, Pagination pagination) {
-        List<E> results = find(query, args);
+    public <R> Page<R> find(DynamicQueryDefinition query, Object[] args, Pagination pagination) {
+        List<R> results = find(query, args);
         int total = results.size();
         int from = Math.min(pagination.offset(), total);
         int to = Math.min(from + pagination.size(), total);
-        List<E> pageItems = results.subList(from, to);
+        List<R> pageItems = results.subList(from, to);
         return Page.of(pageItems, pagination, total);
     }
 
@@ -243,7 +243,7 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
     }
 
     @SuppressWarnings("unchecked")
-    private List<E> applyProjection(List<E> entities, DynamicQueryDefinition query) {
+    private <R> List<R> applyProjection(List<E> entities, DynamicQueryDefinition query) {
         try {
             assert query.projectionFields() != null;
             String[] fieldNames = query.projectionFields().split("\\s*,\\s*");
@@ -263,7 +263,7 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
                 projected.add(dto);
             }
 
-            return (List<E>) projected;
+            return (List<R>) projected;
         } catch (Exception e) {
             throw new IllegalStateException("Failed to project result to " + query.returnType().getName(), e);
         }
