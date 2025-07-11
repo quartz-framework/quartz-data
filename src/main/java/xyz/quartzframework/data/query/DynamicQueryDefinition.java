@@ -8,6 +8,7 @@ import java.util.List;
 public record DynamicQueryDefinition(
     Method method,
     QueryAction action,
+    List<QuerySubstitution> querySubstitutions,
     List<QueryCondition> queryConditions,
     List<Order> orders,
     @Nullable Integer limit,

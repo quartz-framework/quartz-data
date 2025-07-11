@@ -3,12 +3,12 @@ package xyz.quartzframework.data.entity;
 import jakarta.persistence.Id;
 import lombok.RequiredArgsConstructor;
 import lombok.val;
+import xyz.quartzframework.core.bean.definition.metadata.TypeMetadata;
 import xyz.quartzframework.core.context.AbstractQuartzContext;
-import xyz.quartzframework.core.util.ClassUtil;
-import xyz.quartzframework.core.util.ReflectionUtil;
 import xyz.quartzframework.data.annotation.DiscoverEntities;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 public class EntityDiscovery {
@@ -17,7 +17,7 @@ public class EntityDiscovery {
 
     private final Set<String> basePackages = new HashSet<>();
 
-    private final Set<Class<?>> explicitEntities = new HashSet<>();
+    private final Set<TypeMetadata> explicitEntities = new HashSet<>();
 
     private Map<String, Object> discoverers = Map.of();
 
@@ -35,8 +35,8 @@ public class EntityDiscovery {
         return this;
     }
 
-    public EntityDiscovery addExplicitEntities(Collection<Class<?>> storages) {
-        this.explicitEntities.addAll(storages);
+    public EntityDiscovery addExplicitEntities(Collection<Class<?>> entities) {
+        this.explicitEntities.addAll(entities.stream().map(e -> TypeMetadata.of(e, context.getClassLoader())).collect(Collectors.toSet()));
         return this;
     }
 
@@ -46,36 +46,44 @@ public class EntityDiscovery {
     }
 
     public Set<Class<?>> discover() {
-        Set<Class<?>> entities = new HashSet<>(explicitEntities);
+        Set<TypeMetadata> entities = new HashSet<>(explicitEntities);
         val quartzApplication = context.getQuartzApplication();
 
         for (Object discoverer : discoverers.values()) {
             DiscoverEntities config = discoverer.getClass().getAnnotation(DiscoverEntities.class);
             if (config != null) {
-                entities.addAll(Arrays.asList(config.value()));
+                entities.addAll(Arrays.stream(config.value()).map(c -> TypeMetadata.of(c, context.getClassLoader())).toList());
                 Collections.addAll(basePackages, config.basePackages());
             }
         }
 
         for (String pkg : basePackages) {
-            entities.addAll(ClassUtil.scan(
+            entities.addAll(TypeMetadata.scan(
                 new String[]{pkg},
                 quartzApplication.exclude(),
-                c -> !c.isInterface() && !ReflectionUtil.getFields(c, Id.class, Identity.class).isEmpty(),
-                quartzApplication.verbose()
+                    c -> !c.isInterface() && c.getDeclaredFieldInfo()
+                            .stream()
+                            .anyMatch(f -> f.hasAnnotation(Id.class) || f.hasAnnotation(Identity.class)),
+                    type -> !type.isAnnotation(),
+                    quartzApplication.verbose(),
+                    context.getClassLoader()
             ));
         }
 
         if (entities.isEmpty()) {
             String fallback = context.getPluginClass().getPackageName();
-            entities.addAll(ClassUtil.scan(
+            entities.addAll(TypeMetadata.scan(
                 new String[]{fallback},
                 quartzApplication.exclude(),
-                    c -> !c.isInterface() && !ReflectionUtil.getFields(c, Id.class, Identity.class).isEmpty(),
-                quartzApplication.verbose()
+                    c -> !c.isInterface() && c.getDeclaredFieldInfo()
+                            .stream()
+                            .anyMatch(f -> f.hasAnnotation(Id.class) || f.hasAnnotation(Identity.class)),
+                    type -> !type.isAnnotation(),
+                    quartzApplication.verbose(),
+                    context.getClassLoader()
             ));
         }
 
-        return entities;
+        return entities.stream().map(TypeMetadata::getType).collect(Collectors.toSet());
     }
 }

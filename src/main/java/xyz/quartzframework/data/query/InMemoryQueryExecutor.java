@@ -34,22 +34,49 @@ public class InMemoryQueryExecutor<E> implements QueryExecutor<E> {
 
         List<List<Predicate<E>>> orGroups = new ArrayList<>();
         List<Predicate<E>> currentGroup = new ArrayList<>();
-        int argIndex = 0;
+        List<QuerySubstitution> substitutions = query.querySubstitutions();
+        int subIndex = 0;
 
         for (QueryCondition condition : query.queryConditions()) {
-            Object value;
+            QuerySubstitution sub = null;
+            Object value = null;
 
-            if (condition.getFixedValue() != null || condition.getOperation() == Operation.IS_NULL || condition.getOperation() == Operation.IS_NOT_NULL) {
-                value = condition.getFixedValue();
-            } else if (condition.getNamedParameter() != null) {
-                value = ParameterBindingUtil.findNamedParameter(query.method(), condition.getNamedParameter(), args);
-            } else if (condition.getParamIndex() != null) {
-                value = args[condition.getParamIndex()];
-            } else {
-                if (argIndex >= args.length) {
-                    throw new ParameterBindingException("No argument available for condition: " + condition);
+            boolean expectsValue = switch (condition.getOperation()) {
+                case IS_NULL, IS_NOT_NULL -> false;
+                default -> true;
+            };
+
+            if (expectsValue) {
+                sub = subIndex < substitutions.size() ? substitutions.get(subIndex) : null;
+                subIndex++;
+
+                if (sub == null) {
+                    throw new ParameterBindingException("No substitution found for condition: " + condition);
                 }
-                value = args[argIndex++];
+
+                if (sub.isLiteral()) {
+                    value = sub.getLiteralValue();
+                } else if (sub.isNamed()) {
+                    value = ParameterBindingUtil.findNamedParameter(query.method(), sub.getNameOrIndex(), args);
+                } else {
+                    String nameOrIndex = sub.getNameOrIndex();
+                    if (nameOrIndex == null) {
+                        throw new ParameterBindingException("Missing substitution index for positional parameter");
+                    }
+
+                    int idx;
+                    try {
+                        idx = Integer.parseInt(nameOrIndex);
+                    } catch (NumberFormatException ex) {
+                        throw new ParameterBindingException("Invalid substitution index: ?" + nameOrIndex, ex);
+                    }
+
+                    if (idx < 0 || idx >= args.length) {
+                        throw new ParameterBindingException("Missing argument for parameter index: ?" + idx);
+                    }
+
+                    value = args[idx];
+                }
             }
 
             Object finalValue = value;

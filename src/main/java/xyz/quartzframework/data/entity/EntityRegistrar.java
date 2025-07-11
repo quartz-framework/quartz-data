@@ -27,6 +27,5 @@ public class EntityRegistrar {
                 log.error("Failed to register entity class: {}", entity.getName(), e);
             }
         }
-        log.info("Registered {} entities", entities.size());
     }
 }

@@ -42,13 +42,13 @@ public class StorageMethodInterceptor<E, ID> implements MethodInterceptor {
         String queryString = queryParser.queryString(method);
         validateReturnType(method, query);
         Object[] args = invocation.getArguments();
-        long dynamicConditions = query
-                .queryConditions()
+        long dynamicSubstitutions = query
+                .querySubstitutions()
                 .stream()
-                .filter(c -> c.getFixedValue() == null && c.getParamIndex() != null)
+                .filter(sub -> !sub.isLiteral())
                 .count();
-        if (args.length < dynamicConditions) {
-            throw new IllegalStateException("Expected " + dynamicConditions + " arguments for query '" + queryString + "', but got " + args.length);
+        if (args.length < dynamicSubstitutions) {
+            throw new IllegalStateException("Expected " + dynamicSubstitutions + " arguments for query '" + queryString + "', but got " + args.length);
         }
         Class<?> returnType = method.getReturnType();
         return switch (query.action()) {
