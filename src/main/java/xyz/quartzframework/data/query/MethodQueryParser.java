@@ -53,20 +53,25 @@ public class MethodQueryParser implements QueryParser {
         val name = queryString(method);
         QueryAction action = extractAction(name);
         String stripped = stripPrefix(name, action);
+
         boolean distinct = false;
         if (stripped.startsWith("Distinct")) {
             distinct = true;
             stripped = stripped.substring("Distinct".length());
         }
+
         List<QueryCondition> queryConditions = new ArrayList<>();
+        List<QuerySubstitution> substitutions = new ArrayList<>();
         List<Order> orders = new ArrayList<>();
         Integer limit = null;
         String conditionPart = stripped;
+
         if (stripped.contains("OrderBy")) {
             String[] split = stripped.split("OrderBy", 2);
             conditionPart = split[0];
             orders = parseOrderPart(split[1], storageDefinition);
         }
+
         if (conditionPart.startsWith("Top")) {
             Matcher m = Pattern.compile("Top(\\d+)(.*)").matcher(conditionPart);
             if (m.matches()) {
@@ -77,16 +82,28 @@ public class MethodQueryParser implements QueryParser {
             limit = 1;
             conditionPart = conditionPart.substring(5);
         }
+
         if (conditionPart.startsWith("By")) {
             conditionPart = conditionPart.substring(2);
         }
+
         if (!conditionPart.isEmpty()) {
-            queryConditions = parseConditions(conditionPart, storageDefinition);
+            parseConditions(conditionPart, storageDefinition, queryConditions, substitutions);
         }
-        if (stripPrefix(name, action).isEmpty()) {
-            return new DynamicQueryDefinition(method, action, List.of(), List.of(), null, false, false, null, storageDefinition.entityClass(), null);
-        }
-        return new DynamicQueryDefinition(method, action, queryConditions, orders, limit, distinct, false, null, storageDefinition.entityClass(), null);
+
+        return new DynamicQueryDefinition(
+                method,
+                action,
+                substitutions,
+                queryConditions,
+                orders,
+                limit,
+                distinct,
+                false,
+                null,
+                storageDefinition.entityClass(),
+                null
+        );
     }
 
     private QueryAction extractAction(String methodName) {
@@ -100,8 +117,7 @@ public class MethodQueryParser implements QueryParser {
         return methodName.substring(action.name().length()).replaceFirst("^By", "By");
     }
 
-    private List<QueryCondition> parseConditions(String part, StorageDefinition storageDefinition) {
-        List<QueryCondition> queryConditions = new ArrayList<>();
+    private void parseConditions(String part, StorageDefinition storageDefinition, List<QueryCondition> outConditions, List<QuerySubstitution> outSubs) {
         String[] orBlocks = part.split("Or");
         int paramIndex = 0;
 
@@ -110,62 +126,54 @@ public class MethodQueryParser implements QueryParser {
             String[] andTokens = orBlock.split("And");
 
             for (String token : andTokens) {
-                QueryCondition condition = parseConditionToken(token, paramIndex, storageDefinition);
+                QueryCondition condition = parseConditionToken(token, paramIndex, storageDefinition, outSubs);
                 if (i > 0) condition.setOr(true);
-                queryConditions.add(condition);
+                outConditions.add(condition);
                 paramIndex++;
             }
         }
-
-        return queryConditions;
     }
 
-    private QueryCondition parseConditionToken(String token, int index, StorageDefinition storageDefinition) {
+    private QueryCondition parseConditionToken(String token, int index, StorageDefinition storageDefinition, List<QuerySubstitution> outSubs) {
         boolean ignoreCase = false;
         CaseFunction caseFunction = CaseFunction.NONE;
         String rawProperty = token;
-        String rawCondition = token;
+
         if (token.endsWith("IgnoreCase")) {
             token = token.substring(0, token.length() - "IgnoreCase".length());
             ignoreCase = true;
             caseFunction = CaseFunction.LOWER;
         }
-        for (String suffix : suffixAlias
-                .keySet()
-                .stream()
-                .sorted(Comparator.comparingInt(String::length).reversed())
-                .toList()) {
+
+        for (String suffix : suffixAlias.keySet().stream().sorted(Comparator.comparingInt(String::length).reversed()).toList()) {
             if (token.endsWith(suffix)) {
                 Operation op = suffixAlias.get(suffix);
                 String prop = token.substring(0, token.length() - suffix.length());
-                Object fixedValue = switch (suffix) {
-                    case "True" -> true;
-                    case "False" -> false;
-                    case "IsNull", "IsNotNull" -> Boolean.TRUE;
-                    default -> null;
-                };
-                String property = toNestedFieldPath(prop, storageDefinition.entityClass());
+                String fieldPath = toNestedFieldPath(prop, storageDefinition.entityClass());
+                switch (suffix) {
+                    case "True" -> outSubs.add(QuerySubstitution.literal(true, "true"));
+                    case "False" -> outSubs.add(QuerySubstitution.literal(false, "false"));
+                    case "IsNull", "IsNotNull" -> outSubs.add(QuerySubstitution.literal(null, suffix.toLowerCase()));
+                    default -> outSubs.add(QuerySubstitution.positional(String.valueOf(index), "?" + (index)));
+                }
+
                 return new QueryCondition(
-                        rawCondition,
-                        new AttributePath(rawProperty, property, caseFunction),
+                        token,
+                        new AttributePath(rawProperty, fieldPath, caseFunction),
                         op,
-                        fixedValue,
-                        index,
-                        null,
-                        null,
+                        suffix,
                         ignoreCase
                 );
             }
         }
-        String property = toNestedFieldPath(token, storageDefinition.entityClass());
+        String field = toNestedFieldPath(token, storageDefinition.entityClass());
+        outSubs.add(QuerySubstitution.positional(String.valueOf(index), "?" + (index + 1)));
+
         return new QueryCondition(
-                rawCondition,
-                new AttributePath(rawProperty, property, caseFunction),
+                token,
+                new AttributePath(rawProperty, field, caseFunction),
                 Operation.EQUAL,
-                null,
-                index,
-                null,
-                null,
+                "?" + (index + 1),
                 ignoreCase
         );
     }

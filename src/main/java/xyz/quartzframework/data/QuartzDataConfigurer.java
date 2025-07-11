@@ -5,7 +5,6 @@ import lombok.val;
 import xyz.quartzframework.core.bean.annotation.Priority;
 import xyz.quartzframework.core.bean.annotation.Provide;
 import xyz.quartzframework.core.bean.factory.PluginBeanFactory;
-import xyz.quartzframework.core.bean.registry.PluginBeanDefinitionRegistry;
 import xyz.quartzframework.core.condition.annotation.ActivateWhenBeanMissing;
 import xyz.quartzframework.core.context.AbstractQuartzContext;
 import xyz.quartzframework.core.context.annotation.Configurer;
@@ -28,8 +27,6 @@ public class QuartzDataConfigurer {
     private final AbstractQuartzContext<?> context;
 
     private final PluginBeanFactory pluginBeanFactory;
-
-    private final PluginBeanDefinitionRegistry pluginBeanDefinitionRegistry;
 
     private final CompositeQueryParser compositeQueryParser;
 
@@ -77,7 +74,7 @@ public class QuartzDataConfigurer {
     @Priority(5)
     @ActivateWhenBeanMissing(StorageRegistrar.class)
     StorageRegistrar storageRegistrar(StorageFactory storageFactory, StorageDiscovery storageDiscovery) {
-        return new StorageRegistrar(pluginBeanDefinitionRegistry, storageDiscovery, storageFactory);
+        return new StorageRegistrar(context, storageDiscovery, storageFactory);
     }
 
     @Provide

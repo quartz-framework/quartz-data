@@ -4,7 +4,8 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
-import xyz.quartzframework.core.bean.registry.PluginBeanDefinitionRegistry;
+import xyz.quartzframework.core.bean.definition.PluginBeanDefinitionRegistry;
+import xyz.quartzframework.core.context.QuartzContext;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,7 +17,7 @@ public class StorageRegistrar {
     @Getter
     private final List<StorageDefinition> storages = new ArrayList<>();
 
-    public StorageRegistrar(PluginBeanDefinitionRegistry registry,
+    public StorageRegistrar(QuartzContext<?> context,
                             StorageDiscovery storageDiscovery,
                             StorageFactory storageFactory) {
         val storages = storageDiscovery.discover();
@@ -25,7 +26,7 @@ public class StorageRegistrar {
                 Object proxy = storageFactory.create((Class) storageInterface);
                 val entity = storageFactory.resolveEntityType(storageInterface);
                 val id = storageFactory.resolveIdType(storageInterface);
-                registry.registerSingletonBeanDefinition(storageInterface, proxy);
+                context.registerSingleton(storageInterface, proxy);
                 getStorages().add(new StorageDefinition(entity, id));
                 log.debug("Registered storage interface: {}", storageInterface.getName());
             } catch (Exception e) {

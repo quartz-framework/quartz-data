@@ -5,9 +5,7 @@ import xyz.quartzframework.data.storage.StorageDefinition;
 import xyz.quartzframework.data.util.ParameterBindingUtil;
 
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,16 +34,16 @@ public class QQLQueryParser implements QueryParser {
 
     @Override
     public DynamicQueryDefinition parse(Method method, StorageDefinition storageDefinition) {
-        val name = sanitizeQuery(queryString(method));
-        String lower = name.toLowerCase(Locale.ROOT).trim();
+        val rawQuery = sanitizeQuery(queryString(method));
+        val lower = rawQuery.toLowerCase(Locale.ROOT).trim();
 
         QueryAction action;
         if (lower.startsWith("find")) action = QueryAction.FIND;
         else if (lower.startsWith("count")) action = QueryAction.COUNT;
         else if (lower.startsWith("exists")) action = QueryAction.EXISTS;
-        else throw new IllegalArgumentException("Unknown query action: " + name);
+        else throw new IllegalArgumentException("Unknown query action: " + rawQuery);
 
-        String query = name.substring(action.name().length()).trim();
+        String query = rawQuery.substring(action.name().length()).trim();
         boolean distinct = false;
         Integer limit = null;
 
@@ -65,6 +63,7 @@ public class QQLQueryParser implements QueryParser {
         }
 
         List<QueryCondition> queryConditions = new ArrayList<>();
+        List<QuerySubstitution> substitutions = new ArrayList<>();
         List<Order> orders = new ArrayList<>();
 
         String[] parts = query.split("(?i)order\\s+by", 2);
@@ -72,7 +71,7 @@ public class QQLQueryParser implements QueryParser {
         String orderPart = parts.length > 1 ? parts[1].trim() : "";
 
         if (!conditionPart.isEmpty()) {
-            queryConditions = parseWithPrecedence(conditionPart);
+            queryConditions = parseWithPrecedence(conditionPart, substitutions);
         }
 
         if (!orderPart.isEmpty()) {
@@ -103,12 +102,25 @@ public class QQLQueryParser implements QueryParser {
             query = query.substring(0, matcher.start()).trim() + " " + query.substring(matcher.end()).trim();
         }
 
-        val def = new DynamicQueryDefinition(method, action, queryConditions, orders, limit, distinct, false, null, returnType, projectionFieldsRaw);
+        val def = new DynamicQueryDefinition(
+                method,
+                action,
+                substitutions,
+                queryConditions,
+                orders,
+                limit,
+                distinct,
+                false,
+                null,
+                returnType,
+                projectionFieldsRaw
+        );
+
         ParameterBindingUtil.validateNamedParameters(method, def);
         return def;
     }
 
-    private List<QueryCondition> parseWithPrecedence(String conditionPart) {
+    private List<QueryCondition> parseWithPrecedence(String conditionPart, List<QuerySubstitution> substitutions) {
         List<QueryCondition> conditions = new ArrayList<>();
         String[] tokens = conditionPart.split("(?i)\\s+(and|or)\\s+");
         Matcher connectorMatcher = Pattern.compile("(?i)\\s+(and|or)\\s+").matcher(conditionPart);
@@ -120,7 +132,7 @@ public class QQLQueryParser implements QueryParser {
         boolean lastWasOr = false;
         for (int i = 0; i < tokens.length; i++) {
             String expr = tokens[i].trim();
-            QueryCondition cond = parseSingleCondition(expr);
+            QueryCondition cond = parseSingleCondition(expr, substitutions);
             cond.setOr(lastWasOr);
             conditions.add(cond);
             if (i < connectors.size()) {
@@ -130,7 +142,7 @@ public class QQLQueryParser implements QueryParser {
         return conditions;
     }
 
-    private QueryCondition parseSingleCondition(String expr) {
+    private QueryCondition parseSingleCondition(String expr, List<QuerySubstitution> substitutions) {
         Pattern condPattern = Pattern.compile(
                 "(lower\\([\\w.]+\\)|upper\\([\\w.]+\\)|[\\w.]+)\\s*" +
                         "(not like|not in|is not null|is null|>=|<=|!=|<>|=|>|<|like|in)\\s*" +
@@ -171,27 +183,28 @@ public class QQLQueryParser implements QueryParser {
             case "is not null" -> Operation.IS_NOT_NULL;
             default -> throw new IllegalArgumentException("Unknown operator: " + operator);
         };
+        boolean expectsValue = switch (op) {
+            case IS_NULL, IS_NOT_NULL -> false;
+            default -> true;
+        };
 
-        Integer paramIndex = null;
-        Object fixedValue = null;
-        String namedParameter = null;
-
-        if (rawValue != null) {
+        if (expectsValue && rawValue != null) {
             String innerRaw = extractInner(rawValue);
             if (innerRaw.startsWith("?")) {
-                paramIndex = innerRaw.length() == 1 ? 0 : Integer.parseInt(innerRaw.substring(1)) - 1;
+                String idx = innerRaw.length() == 1 ? "0" : String.valueOf(Integer.parseInt(innerRaw.substring(1)) - 1);
+                substitutions.add(QuerySubstitution.positional(idx, rawValue));
             } else if (innerRaw.startsWith(":")) {
-                namedParameter = innerRaw.substring(1);
+                substitutions.add(QuerySubstitution.named(innerRaw.substring(1), rawValue));
             } else if (rawValue.equalsIgnoreCase("true")) {
-                fixedValue = Boolean.TRUE;
+                substitutions.add(QuerySubstitution.literal(true, rawValue));
             } else if (rawValue.equalsIgnoreCase("false")) {
-                fixedValue = Boolean.FALSE;
+                substitutions.add(QuerySubstitution.literal(false, rawValue));
+            } else if (rawValue.equalsIgnoreCase("null")) {
+                substitutions.add(QuerySubstitution.literal(null, rawValue));
             } else if (rawValue.startsWith("'") && rawValue.endsWith("'")) {
-                fixedValue = rawValue.substring(1, rawValue.length() - 1);
+                substitutions.add(QuerySubstitution.literal(rawValue.substring(1, rawValue.length() - 1), rawValue));
             } else {
-                if (!rawValue.equalsIgnoreCase("null")) {
-                    throw new IllegalArgumentException("Unsupported value literal: " + rawValue);
-                }
+                throw new IllegalArgumentException("Unsupported value literal: " + rawValue);
             }
         }
 
@@ -199,9 +212,6 @@ public class QQLQueryParser implements QueryParser {
                 rawCondition,
                 attribute,
                 op,
-                fixedValue,
-                paramIndex,
-                namedParameter,
                 rawValue,
                 ignoreCase
         );
@@ -230,7 +240,7 @@ public class QQLQueryParser implements QueryParser {
 
     private String normalizeField(String name) {
         if (name == null) return null;
-        if (name.contains(".")) return name; // nested OK
+        if (name.contains(".")) return name;
         if (name.contains("_")) return toCamelCase(name);
         return Character.toLowerCase(name.charAt(0)) + name.substring(1);
     }
